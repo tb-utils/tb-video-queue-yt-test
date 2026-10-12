@@ -2,6 +2,9 @@
 
 Experimental YouTube test version of **TB Video Queue**.
 
+Last updated: **2026-10-11**  
+YouTube playback last tested: **2026-10-11**
+
 The current version is a small static web app for building a persistent YouTube playback queue. The project name is intentionally broader than YouTube because support for other video services may be explored in the future.
 
 This is an independent project and is not affiliated with, endorsed by, or sponsored by YouTube or Google.
@@ -15,6 +18,7 @@ Suggested repository name:
 ## Features
 
 - Add a YouTube URL with `Ctrl+V`
+- Adding a URL only adds it to the queue; playback starts with `Play` or by double-clicking a queue item
 - `Paste URL (Ctrl+V)` button
 - Fetch video titles with YouTube oEmbed
 - No YouTube Data API key
@@ -23,9 +27,11 @@ Suggested repository name:
 - Automatic playback of the next queued video
 - Fixed-height scrollable queue
 - The currently playing item is scrolled into view once when playback changes
-- `Now Playing` button
+- `Scroll to Now Playing Item` scrolls the queue to the item that is currently playing
+- The currently playing row is marked with `▶`
 - Move items up or down
 - Delete selected item
+- When the queue has keyboard focus: `↑` moves the selected item up, `↓` moves it down, and `Delete` removes it
 - `Delete Above` removes all items before the selected item
 - `Copy Queue` copies the whole queue as plain text
 - Browser standard context menu is preserved
@@ -66,6 +72,14 @@ There are two relevant browser restrictions:
 2. The YouTube embedded player expects a valid web origin / referrer. Direct `file://` use can therefore fail with YouTube player error 153.
 
 For local development, `http://localhost` may work because modern browsers can treat localhost as a secure context. The normal supported deployment remains HTTPS.
+
+## Login-required content
+
+TB Video Queue does not handle account credentials or implement its own login system.
+
+For a service that requires login, sign in to that service normally in the **same browser profile**. When TB Video Queue opens a supported service page or player, the browser can use the service's existing login session.
+
+Embedded players may behave differently depending on the service itself and on browser privacy / third-party cookie settings.
 
 ## Privacy / credentials
 
