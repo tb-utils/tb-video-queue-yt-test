@@ -3,7 +3,7 @@
 Experimental YouTube test version of **TB Video Queue**.
 
 Last updated: **2026-10-11**  
-YouTube playback last tested: **2026-10-11**
+Last checked with YouTube: **2026-10-11**
 
 The current version is a small static web app for building a persistent YouTube playback queue. The project name is intentionally broader than YouTube because support for other video services may be explored in the future.
 
