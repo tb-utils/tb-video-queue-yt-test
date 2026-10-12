@@ -89,6 +89,10 @@ Video titles are obtained with YouTube oEmbed. Playback uses the official YouTub
 
 The queue itself is stored only in the browser's `localStorage` for the site.
 
+### Multiple tabs
+
+Queue data stored in `localStorage` is shared between tabs of this app in the same browser profile. If the queue is changed in multiple tabs at the same time, later changes may overwrite earlier ones.
+
 ## License
 
 MIT License. See `LICENSE`.
