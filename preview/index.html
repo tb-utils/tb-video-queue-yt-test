@@ -1,0 +1,1327 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TB Video Queue — YT Test</title>
+
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: Canvas;
+      --fg: CanvasText;
+      --muted: color-mix(in srgb, CanvasText 58%, transparent);
+      --border: color-mix(in srgb, CanvasText 20%, transparent);
+      --panel: color-mix(in srgb, Canvas 95%, CanvasText 5%);
+      --playing: color-mix(in srgb, #4caf50 18%, Canvas);
+      --selected: #4285f4;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--fg);
+    }
+
+    .app {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 16px;
+    }
+
+    h1 {
+      margin: 0 0 4px;
+      font-size: 1.5rem;
+    }
+
+    .meta {
+      margin: 0 0 10px;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+
+    .hint {
+      margin: 0 0 12px;
+      color: var(--muted);
+    }
+
+    .unsupported {
+      display: none;
+      margin: 0 0 12px;
+      padding: 12px;
+      border: 1px solid #c48a00;
+      border-radius: 8px;
+      background: color-mix(in srgb, #f5c542 12%, Canvas);
+    }
+
+    .player-wrap {
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: #111;
+      border-radius: 10px;
+      overflow: hidden;
+      margin-bottom: 12px;
+      position: relative;
+    }
+
+    #playerHost,
+    #player,
+    #spotifyHost {
+      width: 100%;
+      height: 100%;
+    }
+
+    .player-placeholder {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      color: #ddd;
+      text-align: center;
+      padding: 20px;
+    }
+
+    .toolbar {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 10px;
+    }
+
+    button {
+      padding: 8px 12px;
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      background: var(--panel);
+      color: var(--fg);
+      cursor: pointer;
+    }
+
+    button:hover {
+      filter: brightness(1.05);
+    }
+
+    button:disabled {
+      opacity: 0.5;
+      cursor: default;
+    }
+
+    .queue-box {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--panel);
+      overflow: hidden;
+    }
+
+    .queue-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .queue-title {
+      font-weight: 700;
+    }
+
+    .queue-meta {
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+
+    .queue-scroll {
+      height: 320px;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+    }
+
+    #queue {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+    }
+
+    .item {
+      display: grid;
+      grid-template-columns: 44px 1fr auto;
+      align-items: center;
+      gap: 8px;
+      padding: 10px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .item:last-child {
+      border-bottom: 0;
+    }
+
+    .item.playing {
+      background: var(--playing);
+    }
+
+    .item.selected {
+      outline: 2px solid var(--selected);
+      outline-offset: -2px;
+    }
+
+    .num {
+      color: var(--muted);
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .mainline {
+      min-width: 0;
+    }
+
+    .title {
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      user-select: text;
+    }
+
+    .subline {
+      margin-top: 2px;
+      color: var(--muted);
+      font-size: 0.82rem;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      user-select: text;
+    }
+
+    .provider {
+      font-size: 0.78rem;
+      color: var(--muted);
+      margin-left: 0.4em;
+    }
+
+    .item-actions {
+      display: flex;
+      gap: 4px;
+    }
+
+    .item-actions button {
+      min-width: 34px;
+      padding: 5px 8px;
+    }
+
+    .empty {
+      padding: 28px 12px;
+      color: var(--muted);
+      text-align: center;
+    }
+
+    .status {
+      margin-top: 10px;
+      min-height: 1.4em;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+
+    @media (max-width: 700px) {
+      .item {
+        grid-template-columns: 34px 1fr;
+      }
+
+      .item-actions {
+        grid-column: 2;
+      }
+
+      .queue-scroll {
+        height: 280px;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <div class="app">
+    <h1>TB Video Queue — YT Test</h1>
+    <div id="previewLink"></div>
+    <div class="meta">App updated: 2026-10-16 · Spotify episode support: experimental</div>
+
+    <p class="hint">
+      Copy a YouTube or Spotify episode URL, then press <strong>Ctrl+V</strong> on this page,
+      or use <strong>Paste URL (Ctrl+V)</strong>.
+    </p>
+
+    <div id="unsupported" class="unsupported">
+      <strong>Unsupported local mode:</strong>
+      opening this file directly with <code>file://</code> is not supported.
+      Use the HTTPS GitHub Pages version. <code>localhost</code> may work for development.
+    </div>
+
+    <div class="player-wrap">
+      <div id="playerHost">
+        <div class="player-placeholder">
+          Add items to the queue, then press Play or double-click a queue item.
+        </div>
+      </div>
+    </div>
+
+    <div class="toolbar">
+      <button id="pasteBtn">Paste URL (Ctrl+V)</button>
+      <button id="pastePlayBtn">Paste &amp; Play</button>
+      <button id="copyBtn">Copy Queue</button>
+      <button id="playBtn">Play</button>
+      <button id="prevBtn">Previous</button>
+      <button id="nextBtn">Next</button>
+      <button id="nowBtn">Scroll to Now Playing Item</button>
+      <button id="deleteBtn">Delete Selected</button>
+      <button id="deleteAboveBtn">Delete Above</button>
+      <button id="clearBtn">Clear All</button>
+    </div>
+
+    <div id="queueBox" class="queue-box" tabindex="0">
+      <div class="queue-head">
+        <div class="queue-title">Queue</div>
+        <div id="queueMeta" class="queue-meta">0 items</div>
+      </div>
+
+      <div id="queueScroll" class="queue-scroll">
+        <ol id="queue"></ol>
+      </div>
+    </div>
+
+    <div id="status" class="status"></div>
+  </div>
+
+  <script>
+    // -----------------------------------------------------------------------
+    // Link to ./preview/index.html if the file exists
+    // -----------------------------------------------------------------------
+    (async () => {
+      const box = document.getElementById("previewLink");
+
+      try {
+        const response = await fetch("./preview/index.html", {
+          cache: "no-store"
+        });
+
+        if (!response.ok) return;
+
+        const a = document.createElement("a");
+        a.href = "./preview/";
+        a.textContent = "( --> Experimental / Preview version )";
+        a.style.display = "inline-block";
+        a.style.marginBottom = "12px";
+        box.appendChild(a);
+      } catch {
+        // No preview available.
+      }
+    })();
+    // -----------------------------------------------------------------------
+
+    (() => {
+      "use strict";
+
+      // -----------------------------------------------------------------------
+      // Storage / application state
+      // -----------------------------------------------------------------------
+
+      // Keep the existing keys so current YouTube queues are not discarded.
+      const QUEUE_KEY = "tbYouTubeQueue.v1";
+      const CURRENT_INDEX_KEY = "tbYouTubeQueue.currentIndex.v1";
+
+      const e = {
+        unsupported: document.getElementById("unsupported"),
+        playerHost: document.getElementById("playerHost"),
+        queue: document.getElementById("queue"),
+        queueMeta: document.getElementById("queueMeta"),
+        queueBox: document.getElementById("queueBox"),
+        status: document.getElementById("status"),
+        pasteBtn: document.getElementById("pasteBtn"),
+        pastePlayBtn: document.getElementById("pastePlayBtn"),
+        copyBtn: document.getElementById("copyBtn"),
+        playBtn: document.getElementById("playBtn"),
+        prevBtn: document.getElementById("prevBtn"),
+        nextBtn: document.getElementById("nextBtn"),
+        nowBtn: document.getElementById("nowBtn"),
+        deleteBtn: document.getElementById("deleteBtn"),
+        deleteAboveBtn: document.getElementById("deleteAboveBtn"),
+        clearBtn: document.getElementById("clearBtn")
+      };
+
+      let q = loadQueue();
+      let cur = loadCurrentIndex();
+      let sel = q.length ? Math.min(Math.max(cur, 0), q.length - 1) : -1;
+
+      let activeKey = null;
+
+      // YouTube player state
+      let ytPlayer = null;
+      let ytReady = false;
+      let ytPendingIndex = null;
+      let ytApiLoading = false;
+
+      // Spotify player state
+      let spotifyApi = null;
+      let spotifyController = null;
+      let spotifyApiLoading = false;
+      let spotifyPendingIndex = null;
+      let spotifyEndHandledForKey = null;
+
+      if (location.protocol === "file:") {
+        e.unsupported.style.display = "block";
+      }
+
+      // -----------------------------------------------------------------------
+      // Utilities
+      // -----------------------------------------------------------------------
+
+      function setStatus(message) {
+        e.status.textContent = message || "";
+      }
+
+      function clamp(index) {
+        return q.length ? Math.max(0, Math.min(index, q.length - 1)) : -1;
+      }
+
+      function providerLabel(item) {
+        return item.provider === "spotify" ? "Spotify episode" : "YouTube";
+      }
+
+      function itemKey(item) {
+        return `${item.provider}:${item.id}`;
+      }
+
+      function normalizeStoredItem(item) {
+        if (!item || typeof item !== "object") {
+          return null;
+        }
+
+        // Backward compatibility with the earlier YouTube-only queue format.
+        if (item.videoId && !item.provider) {
+          return {
+            provider: "youtube",
+            id: item.videoId,
+            title: item.title || item.videoId,
+            url: item.url || `https://www.youtube.com/watch?v=${item.videoId}`
+          };
+        }
+
+        if (
+          (item.provider === "youtube" || item.provider === "spotify") &&
+          typeof item.id === "string" &&
+          item.id
+        ) {
+          return {
+            provider: item.provider,
+            id: item.id,
+            title: item.title || item.id,
+            url: item.url || ""
+          };
+        }
+
+        return null;
+      }
+
+      // -----------------------------------------------------------------------
+      // localStorage
+      // -----------------------------------------------------------------------
+
+      function loadQueue() {
+        try {
+          const raw = JSON.parse(localStorage.getItem(QUEUE_KEY) || "[]");
+          if (!Array.isArray(raw)) {
+            return [];
+          }
+
+          return raw.map(normalizeStoredItem).filter(Boolean);
+        } catch {
+          return [];
+        }
+      }
+
+      function saveQueue() {
+        localStorage.setItem(QUEUE_KEY, JSON.stringify(q));
+      }
+
+      function loadCurrentIndex() {
+        const n = Number(localStorage.getItem(CURRENT_INDEX_KEY));
+        return Number.isFinite(n) ? n : 0;
+      }
+
+      function saveCurrentIndex() {
+        localStorage.setItem(CURRENT_INDEX_KEY, String(cur));
+      }
+
+      // -----------------------------------------------------------------------
+      // URL parsing / title lookup
+      // -----------------------------------------------------------------------
+
+      function parseContentUrl(text) {
+        const source = String(text || "").trim();
+
+        // Accept a bare 11-character YouTube video ID for compatibility.
+        if (/^[A-Za-z0-9_-]{11}$/.test(source)) {
+          return {
+            provider: "youtube",
+            id: source,
+            url: `https://www.youtube.com/watch?v=${source}`
+          };
+        }
+
+        let url;
+        try {
+          url = new URL(source);
+        } catch {
+          return null;
+        }
+
+        // YouTube
+        if (url.hostname === "youtu.be") {
+          const id = url.pathname.split("/").filter(Boolean)[0];
+          if (/^[A-Za-z0-9_-]{11}$/.test(id || "")) {
+            return {
+              provider: "youtube",
+              id,
+              url: `https://www.youtube.com/watch?v=${id}`
+            };
+          }
+        }
+
+        if (url.hostname === "youtube.com" || url.hostname.endsWith(".youtube.com")) {
+          if (url.pathname === "/watch") {
+            const id = url.searchParams.get("v");
+            if (/^[A-Za-z0-9_-]{11}$/.test(id || "")) {
+              return {
+                provider: "youtube",
+                id,
+                url: `https://www.youtube.com/watch?v=${id}`
+              };
+            }
+          }
+
+          const parts = url.pathname.split("/").filter(Boolean);
+          if (["embed", "shorts", "live"].includes(parts[0])) {
+            const id = parts[1];
+            if (/^[A-Za-z0-9_-]{11}$/.test(id || "")) {
+              return {
+                provider: "youtube",
+                id,
+                url: `https://www.youtube.com/watch?v=${id}`
+              };
+            }
+          }
+        }
+
+        // Spotify episode (experimental)
+        if (url.hostname === "open.spotify.com") {
+          const parts = url.pathname.split("/").filter(Boolean);
+          if (parts[0] === "episode" && /^[A-Za-z0-9]+$/.test(parts[1] || "")) {
+            const id = parts[1];
+            return {
+              provider: "spotify",
+              id,
+              url: `https://open.spotify.com/episode/${id}`
+            };
+          }
+        }
+
+        return null;
+      }
+
+      async function fetchTitle(item) {
+        if (item.provider === "youtube") {
+          const endpoint =
+            "https://www.youtube.com/oembed?url=" +
+            encodeURIComponent(item.url) +
+            "&format=json";
+
+          const response = await fetch(endpoint);
+          if (!response.ok) {
+            throw new Error("YouTube oEmbed failed.");
+          }
+
+          const data = await response.json();
+          return data.title || item.id;
+        }
+
+        if (item.provider === "spotify") {
+          const endpoint =
+            "https://open.spotify.com/oembed?url=" +
+            encodeURIComponent(item.url);
+
+          const response = await fetch(endpoint);
+          if (!response.ok) {
+            throw new Error("Spotify oEmbed failed.");
+          }
+
+          const data = await response.json();
+          return data.title || item.id;
+        }
+
+        return item.id;
+      }
+
+      // Adds all recognizable URLs in pasted text.
+      // Returns the index of the final recognized item, or -1 if none were found.
+      async function addText(text) {
+        const lines = String(text || "")
+          .split(/\r?\n/)
+          .map(line => line.trim())
+          .filter(Boolean);
+
+        let added = 0;
+        let bad = 0;
+        let finalIndex = -1;
+
+        for (const line of lines) {
+          const parsed = parseContentUrl(line);
+
+          if (!parsed) {
+            bad++;
+            continue;
+          }
+
+          const key = `${parsed.provider}:${parsed.id}`;
+          const existingIndex = q.findIndex(item => itemKey(item) === key);
+
+          if (existingIndex >= 0) {
+            sel = existingIndex;
+            finalIndex = existingIndex;
+            render();
+            scrollSelected();
+            continue;
+          }
+
+          const item = {
+            ...parsed,
+            title: "Loading title…"
+          };
+
+          q.push(item);
+          sel = q.length - 1;
+          finalIndex = sel;
+          added++;
+
+          saveQueue();
+          render();
+          scrollSelected();
+
+          try {
+            const title = await fetchTitle(item);
+            const index = q.findIndex(candidate => itemKey(candidate) === key);
+
+            if (index >= 0) {
+              q[index].title = title;
+              saveQueue();
+              render();
+              if (index === sel) {
+                scrollSelected();
+              }
+            }
+          } catch {
+            const index = q.findIndex(candidate => itemKey(candidate) === key);
+
+            if (index >= 0) {
+              q[index].title = `(Title unavailable) ${item.id}`;
+              saveQueue();
+              render();
+            }
+          }
+        }
+
+        if (finalIndex < 0 && bad) {
+          setStatus("No supported content URL found.");
+        } else if (finalIndex >= 0) {
+          setStatus(`${added} added${bad ? ` / ${bad} unrecognized line(s)` : ""}.`);
+        }
+
+        return finalIndex;
+      }
+
+      // -----------------------------------------------------------------------
+      // Queue rendering / selection
+      // -----------------------------------------------------------------------
+
+      function render() {
+        e.queue.innerHTML = "";
+        e.queueMeta.textContent = `${q.length} item${q.length === 1 ? "" : "s"}`;
+
+        if (!q.length) {
+          e.queue.innerHTML =
+            '<li class="empty">Press Ctrl+V to add a YouTube or Spotify episode URL.</li>';
+          sel = -1;
+          cur = 0;
+          saveCurrentIndex();
+          updateButtons();
+          return;
+        }
+
+        cur = clamp(cur);
+        sel = clamp(sel);
+
+        q.forEach((item, index) => {
+          const li = document.createElement("li");
+          li.className = "item";
+          li.dataset.index = String(index);
+
+          if (itemKey(item) === activeKey) {
+            li.classList.add("playing");
+          }
+
+          if (index === sel) {
+            li.classList.add("selected");
+          }
+
+          const number = document.createElement("div");
+          number.className = "num";
+          number.textContent =
+            (itemKey(item) === activeKey ? "▶ " : "") + String(index + 1);
+
+          const mainline = document.createElement("div");
+          mainline.className = "mainline";
+
+          const title = document.createElement("div");
+          title.className = "title";
+          title.textContent = item.title || item.id;
+          title.title = title.textContent;
+
+          const provider = document.createElement("span");
+          provider.className = "provider";
+          provider.textContent = `[${providerLabel(item)}]`;
+          title.appendChild(provider);
+
+          const subline = document.createElement("div");
+          subline.className = "subline";
+          subline.textContent = item.url;
+          subline.title = item.url;
+
+          mainline.append(title, subline);
+
+          const actions = document.createElement("div");
+          actions.className = "item-actions";
+
+          const specs = [
+            ["↑", "Move up", () => move(index, index - 1), index === 0],
+            ["↓", "Move down", () => move(index, index + 1), index === q.length - 1],
+            ["×", "Delete", () => deleteItem(index), false]
+          ];
+
+          for (const spec of specs) {
+            const button = document.createElement("button");
+            button.textContent = spec[0];
+            button.title = spec[1];
+            button.disabled = spec[3];
+
+            button.addEventListener("click", event => {
+              event.stopPropagation();
+              spec[2]();
+            });
+
+            actions.appendChild(button);
+          }
+
+          li.append(number, mainline, actions);
+
+          li.addEventListener("click", () => {
+            sel = index;
+            e.queueBox.focus({ preventScroll: true });
+            render();
+          });
+
+          li.addEventListener("dblclick", () => {
+            play(index);
+          });
+
+          e.queue.appendChild(li);
+        });
+
+        updateButtons();
+      }
+
+      function updateButtons() {
+        const hasItems = q.length > 0;
+
+        e.copyBtn.disabled = !hasItems;
+        e.playBtn.disabled = !hasItems;
+        e.prevBtn.disabled = !hasItems;
+        e.nextBtn.disabled = !hasItems;
+        e.nowBtn.disabled = !activeKey;
+        e.deleteBtn.disabled = sel < 0;
+        e.deleteAboveBtn.disabled = sel <= 0;
+        e.clearBtn.disabled = !hasItems;
+      }
+
+      function scrollSelected() {
+        if (sel < 0) {
+          return;
+        }
+
+        const row = e.queue.querySelector(`[data-index="${sel}"]`);
+        if (row) {
+          row.scrollIntoView({ block: "nearest", behavior: "smooth" });
+        }
+      }
+
+      function scrollToPlaying() {
+        if (!activeKey) {
+          return;
+        }
+
+        const index = q.findIndex(item => itemKey(item) === activeKey);
+        const row = e.queue.querySelector(`[data-index="${index}"]`);
+
+        if (row) {
+          row.scrollIntoView({ block: "nearest", behavior: "smooth" });
+        }
+      }
+
+      // -----------------------------------------------------------------------
+      // Queue editing
+      // -----------------------------------------------------------------------
+
+      function move(fromIndex, toIndex) {
+        if (
+          toIndex < 0 ||
+          toIndex >= q.length ||
+          fromIndex === toIndex
+        ) {
+          return;
+        }
+
+        const [item] = q.splice(fromIndex, 1);
+        q.splice(toIndex, 0, item);
+        sel = toIndex;
+
+        const playingIndex = q.findIndex(candidate => itemKey(candidate) === activeKey);
+        if (playingIndex >= 0) {
+          cur = playingIndex;
+        }
+
+        saveQueue();
+        saveCurrentIndex();
+        render();
+      }
+
+      function deleteItem(index) {
+        if (index < 0 || index >= q.length) {
+          return;
+        }
+
+        const removesPlayingItem = itemKey(q[index]) === activeKey;
+        q.splice(index, 1);
+
+        if (!q.length) {
+          sel = -1;
+          cur = 0;
+        } else {
+          sel = Math.min(sel, q.length - 1);
+
+          const playingIndex = q.findIndex(item => itemKey(item) === activeKey);
+          cur = playingIndex >= 0 ? playingIndex : Math.min(cur, q.length - 1);
+        }
+
+        saveQueue();
+        saveCurrentIndex();
+
+        if (removesPlayingItem) {
+          clearPlayer();
+        } else {
+          render();
+        }
+      }
+
+      function deleteAbove() {
+        if (sel <= 0) {
+          return;
+        }
+
+        const removesPlayingItem = q
+          .slice(0, sel)
+          .some(item => itemKey(item) === activeKey);
+
+        q.splice(0, sel);
+        sel = 0;
+
+        const playingIndex = q.findIndex(item => itemKey(item) === activeKey);
+        cur = playingIndex >= 0 ? playingIndex : 0;
+
+        saveQueue();
+        saveCurrentIndex();
+
+        if (removesPlayingItem) {
+          clearPlayer();
+        } else {
+          render();
+        }
+
+        setStatus("Deleted all items above the selected item.");
+      }
+
+      function clearAll() {
+        if (!q.length || !confirm("Clear the entire queue?")) {
+          return;
+        }
+
+        q = [];
+        sel = -1;
+        cur = 0;
+
+        saveQueue();
+        saveCurrentIndex();
+        clearPlayer();
+        setStatus("Queue cleared.");
+      }
+
+      // -----------------------------------------------------------------------
+      // Player switching
+      // -----------------------------------------------------------------------
+
+      function clearPlayer() {
+        // YouTube cleanup
+        try {
+          if (ytPlayer && ytPlayer.stopVideo) {
+            ytPlayer.stopVideo();
+          }
+
+          if (ytPlayer && ytPlayer.destroy) {
+            ytPlayer.destroy();
+          }
+        } catch {}
+
+        ytPlayer = null;
+        ytReady = false;
+        ytPendingIndex = null;
+
+        // Spotify cleanup
+        try {
+          if (spotifyController && spotifyController.destroy) {
+            spotifyController.destroy();
+          } else if (spotifyController && spotifyController.pause) {
+            spotifyController.pause();
+          }
+        } catch {}
+
+        spotifyController = null;
+        spotifyPendingIndex = null;
+        spotifyEndHandledForKey = null;
+
+        activeKey = null;
+
+        e.playerHost.innerHTML =
+          '<div class="player-placeholder">' +
+          "Add items to the queue, then press Play or double-click a queue item." +
+          "</div>";
+
+        render();
+      }
+
+      function play(index) {
+        if (!q.length) {
+          return;
+        }
+
+        index = clamp(index);
+        const item = q[index];
+
+        cur = index;
+        sel = index;
+        activeKey = itemKey(item);
+
+        saveCurrentIndex();
+        render();
+
+        if (item.provider === "youtube") {
+          playYouTube(index);
+          return;
+        }
+
+        if (item.provider === "spotify") {
+          playSpotify(index);
+          return;
+        }
+
+        setStatus("Unsupported provider.");
+      }
+
+      function next() {
+        if (!q.length) {
+          return;
+        }
+
+        const index = q.findIndex(item => itemKey(item) === activeKey);
+
+        if (index >= 0 && index + 1 < q.length) {
+          play(index + 1);
+        } else {
+          setStatus("Reached the end of the queue.");
+        }
+      }
+
+      function previous() {
+        if (!q.length) {
+          return;
+        }
+
+        const index = q.findIndex(item => itemKey(item) === activeKey);
+        play(Math.max(0, index > 0 ? index - 1 : 0));
+      }
+
+      // -----------------------------------------------------------------------
+      // YouTube provider
+      // -----------------------------------------------------------------------
+
+      window.onYouTubeIframeAPIReady = () => {
+        ytApiLoading = false;
+
+        if (ytPendingIndex != null) {
+          const index = ytPendingIndex;
+          ytPendingIndex = null;
+          playYouTube(index);
+        }
+      };
+
+      function ensureYouTubeApi() {
+        if (window.YT && YT.Player) {
+          return;
+        }
+
+        if (ytApiLoading) {
+          return;
+        }
+
+        ytApiLoading = true;
+
+        const script = document.createElement("script");
+        script.src = "https://www.youtube.com/iframe_api";
+        document.head.appendChild(script);
+      }
+
+      function createYouTubePlayer(item) {
+        e.playerHost.innerHTML = '<div id="player"></div>';
+
+        const vars = {
+          controls: 1,
+          rel: 0
+        };
+
+        if (location.protocol === "https:" || location.protocol === "http:") {
+          vars.origin = location.origin;
+        }
+
+        ytPlayer = new YT.Player("player", {
+          width: "100%",
+          height: "100%",
+          videoId: item.id,
+          playerVars: vars,
+          events: {
+            onReady: event => {
+              ytReady = true;
+              event.target.playVideo();
+              render();
+              scrollToPlaying();
+            },
+            onStateChange: event => {
+              if (event.data === YT.PlayerState.ENDED) {
+                next();
+              }
+            },
+            onError: event => {
+              setStatus(`YouTube Player error: ${event.data}`);
+            }
+          }
+        });
+      }
+
+      function playYouTube(index) {
+        const item = q[index];
+
+        // Stop an existing Spotify player before switching provider.
+        try {
+          if (spotifyController && spotifyController.destroy) {
+            spotifyController.destroy();
+          } else if (spotifyController && spotifyController.pause) {
+            spotifyController.pause();
+          }
+        } catch {}
+
+        spotifyController = null;
+        spotifyEndHandledForKey = null;
+
+        if (!(window.YT && YT.Player)) {
+          ytPendingIndex = index;
+          ensureYouTubeApi();
+          setStatus("Loading YouTube Player API…");
+          return;
+        }
+
+        if (!ytPlayer) {
+          createYouTubePlayer(item);
+          setStatus("");
+          return;
+        }
+
+        if (ytReady && ytPlayer.loadVideoById) {
+          ytPlayer.loadVideoById(item.id);
+          setStatus("");
+          render();
+          scrollToPlaying();
+        } else {
+          ytPendingIndex = index;
+        }
+      }
+
+      // -----------------------------------------------------------------------
+      // Spotify provider (experimental)
+      // -----------------------------------------------------------------------
+
+      window.onSpotifyIframeApiReady = IFrameAPI => {
+        spotifyApi = IFrameAPI;
+        spotifyApiLoading = false;
+
+        if (spotifyPendingIndex != null) {
+          const index = spotifyPendingIndex;
+          spotifyPendingIndex = null;
+          playSpotify(index);
+        }
+      };
+
+      function ensureSpotifyApi() {
+        if (spotifyApi) {
+          return;
+        }
+
+        if (spotifyApiLoading) {
+          return;
+        }
+
+        spotifyApiLoading = true;
+
+        const script = document.createElement("script");
+        script.src = "https://open.spotify.com/embed/iframe-api/v1";
+        script.async = true;
+        document.body.appendChild(script);
+      }
+
+      function attachSpotifyEvents(controller) {
+        controller.addListener("ready", () => {
+          try {
+            controller.play();
+          } catch {}
+
+          render();
+          scrollToPlaying();
+        });
+
+        controller.addListener("playback_started", () => {
+          spotifyEndHandledForKey = null;
+        });
+
+        controller.addListener("playback_update", event => {
+          const data = event && event.data ? event.data : {};
+          const position = Number(data.position);
+          const duration = Number(data.duration);
+
+          // Spotify currently exposes playback position/duration rather than a
+          // dedicated "ended" event. Treat reaching the end as a best-effort
+          // queue advance. This is intentionally experimental.
+          if (
+            Number.isFinite(position) &&
+            Number.isFinite(duration) &&
+            duration > 0 &&
+            position >= duration - 500 &&
+            spotifyEndHandledForKey !== activeKey
+          ) {
+            spotifyEndHandledForKey = activeKey;
+            setTimeout(() => {
+              if (spotifyEndHandledForKey === activeKey) {
+                next();
+              }
+            }, 250);
+          }
+        });
+      }
+
+      function createSpotifyPlayer(item) {
+        e.playerHost.innerHTML = '<div id="spotifyHost"></div>';
+
+        const host = document.getElementById("spotifyHost");
+
+        spotifyApi.createController(
+          host,
+          {
+            width: "100%",
+            height: "100%",
+            url: item.url
+          },
+          controller => {
+            spotifyController = controller;
+            spotifyEndHandledForKey = null;
+            attachSpotifyEvents(controller);
+          }
+        );
+      }
+
+      function playSpotify(index) {
+        const item = q[index];
+
+        // Stop and destroy YouTube before switching provider.
+        try {
+          if (ytPlayer && ytPlayer.stopVideo) {
+            ytPlayer.stopVideo();
+          }
+
+          if (ytPlayer && ytPlayer.destroy) {
+            ytPlayer.destroy();
+          }
+        } catch {}
+
+        ytPlayer = null;
+        ytReady = false;
+
+        if (!spotifyApi) {
+          spotifyPendingIndex = index;
+          ensureSpotifyApi();
+          setStatus("Loading Spotify IFrame API…");
+          return;
+        }
+
+        // Reuse the current Spotify controller when possible.
+        if (spotifyController && spotifyController.loadEntity) {
+          spotifyEndHandledForKey = null;
+          spotifyController.loadEntity(item.url);
+
+          try {
+            spotifyController.play();
+          } catch {}
+
+          setStatus("Spotify episode support is experimental.");
+          render();
+          scrollToPlaying();
+          return;
+        }
+
+        createSpotifyPlayer(item);
+        setStatus("Spotify episode support is experimental.");
+      }
+
+      // -----------------------------------------------------------------------
+      // Clipboard
+      // -----------------------------------------------------------------------
+
+      async function pasteOnly() {
+        try {
+          const text = await navigator.clipboard.readText();
+
+          if (!text.trim()) {
+            setStatus("Clipboard is empty.");
+            return;
+          }
+
+          await addText(text);
+        } catch {
+          setStatus("Clipboard access failed. Use Ctrl+V instead.");
+        }
+      }
+
+      async function pasteAndPlay() {
+        try {
+          const text = await navigator.clipboard.readText();
+
+          if (!text.trim()) {
+            setStatus("Clipboard is empty.");
+            return;
+          }
+
+          const index = await addText(text);
+
+          if (index >= 0) {
+            play(index);
+          }
+        } catch {
+          setStatus("Clipboard access failed.");
+        }
+      }
+
+      async function copyQueue() {
+        const text = q
+          .map(item => `${item.title || item.id}\n${item.url}`)
+          .join("\n\n");
+
+        try {
+          await navigator.clipboard.writeText(text);
+          setStatus("Queue copied to clipboard.");
+        } catch {
+          setStatus("Clipboard write failed.");
+        }
+      }
+
+      // Normal Ctrl+V adds to the queue but does not start playback.
+      document.addEventListener("paste", event => {
+        const target = event.target;
+
+        if (target && ["INPUT", "TEXTAREA"].includes(target.tagName)) {
+          return;
+        }
+
+        const text =
+          event.clipboardData &&
+          event.clipboardData.getData("text");
+
+        if (text) {
+          event.preventDefault();
+          addText(text);
+        }
+      });
+
+      // -----------------------------------------------------------------------
+      // Event handlers
+      // -----------------------------------------------------------------------
+
+      e.pasteBtn.addEventListener("click", pasteOnly);
+      e.pastePlayBtn.addEventListener("click", pasteAndPlay);
+      e.copyBtn.addEventListener("click", copyQueue);
+
+      e.playBtn.addEventListener("click", () => {
+        if (q.length) {
+          play(sel >= 0 ? sel : 0);
+        }
+      });
+
+      e.prevBtn.addEventListener("click", previous);
+      e.nextBtn.addEventListener("click", next);
+      e.nowBtn.addEventListener("click", scrollToPlaying);
+      e.deleteBtn.addEventListener("click", () => deleteItem(sel));
+      e.deleteAboveBtn.addEventListener("click", deleteAbove);
+      e.clearBtn.addEventListener("click", clearAll);
+
+      e.queueBox.addEventListener("keydown", event => {
+        if (
+          document.activeElement !== e.queueBox ||
+          sel < 0 ||
+          event.ctrlKey ||
+          event.metaKey ||
+          event.altKey
+        ) {
+          return;
+        }
+
+        if (event.key === "ArrowUp") {
+          event.preventDefault();
+          move(sel, sel - 1);
+        } else if (event.key === "ArrowDown") {
+          event.preventDefault();
+          move(sel, sel + 1);
+        } else if (event.key === "Delete") {
+          event.preventDefault();
+          deleteItem(sel);
+        }
+      });
+
+      render();
+    })();
+  </script>
+</body>
+</html>
