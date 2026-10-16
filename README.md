@@ -2,12 +2,24 @@
 
 Experimental YouTube test version of **TB Video Queue**.
 
-App updated: **2026-10-13**  
+App updated: **2026-10-16**  
 Last checked with YouTube: **2026-10-13**
 
 The current version is a small static web app for building a persistent YouTube playback queue. The project name is intentionally broader than YouTube because support for other video services may be explored in the future.
 
 This is an independent project and is not affiliated with, endorsed by, or sponsored by YouTube or Google.
+
+## Experimental / Preview version
+
+If `preview/index.html` exists, the app automatically shows a link to it.
+
+If this README is inside a `preview/` directory, `./index.html` is the preview version for that level.
+
+The `preview/` directory is intended as a developer-oriented experimental area. It may contain unfinished or unstable changes and may share the same browser storage as the main version.
+
+Use it at your own risk.
+
+Nested preview directories are allowed. For example, `preview/preview/index.html` may also be used if needed.
 
 ## Repository
 
