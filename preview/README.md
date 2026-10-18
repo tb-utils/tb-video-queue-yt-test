@@ -2,8 +2,8 @@
 
 Experimental test version of **TB Video Queue**.
 
-App updated: **2026-10-16**  
-Last checked with YouTube: **2026-10-13**  
+App updated: **2026-10-19**  
+Last checked with YouTube: **2026-10-18**  
 Spotify episode support: **experimental**
 
 The current version is a small static web app for building a persistent playback queue. It currently supports YouTube and experimental Spotify episode playback. The project name is intentionally broader because support for other services may be explored in the future.
@@ -42,6 +42,9 @@ Suggested repository name:
 - Experimental Spotify IFrame API support for `open.spotify.com/episode/...` URLs
 - Automatic playback of the next queued YouTube item
 - Best-effort automatic advance for Spotify episodes (experimental)
+- Saves playback positions for YouTube and Spotify episodes in browser `localStorage`
+- Replaying an unfinished item resumes about 5 seconds before its saved position
+- Saved playback position is removed when an item finishes normally or is removed from the queue
 - Fixed-height scrollable queue
 - The currently playing item is scrolled into view once when playback changes
 - `Scroll to Now Playing Item` scrolls the queue to the item that is currently playing
@@ -75,7 +78,21 @@ Currently recognized:
 https://open.spotify.com/episode/EPISODE_ID
 ```
 
+To get this URL from Spotify, open the episode's context menu, choose `Share`, then choose `Copy episode link`.
+
 Spotify support is intentionally experimental. Playback behavior, autoplay, login state, and automatic queue advance may depend on Spotify's Embed behavior and browser policies.
+
+## Playback position / resume
+
+For YouTube and Spotify episodes, the app periodically stores the latest known playback position in browser `localStorage`.
+
+If an unfinished item is played again, playback resumes about 5 seconds before the saved position, or from the beginning if the saved position is less than 5 seconds. This small rewind is intended to make it easier to recover context after an interruption.
+
+The saved position for an item is removed when playback reaches the end normally or when that item is removed from the queue. `Delete Above` removes saved positions for the deleted items, and `Clear All` removes saved positions for all cleared queue items.
+
+When the app starts, saved playback positions for items that are no longer in the queue are automatically removed.
+
+Spotify end detection remains best-effort because the Spotify IFrame API exposes playback state updates rather than a dedicated ended event. Buffering updates are not treated as completion by this app.
 
 ## Queue copy format
 
@@ -129,11 +146,11 @@ YouTube titles are obtained with YouTube oEmbed and playback uses the official Y
 
 Spotify episode titles are obtained with Spotify oEmbed and playback uses Spotify's official IFrame API.
 
-The queue itself is stored only in the browser's `localStorage` for the site.
+The queue and saved playback positions are stored only in the browser's `localStorage` for the site.
 
 ### Multiple tabs
 
-Queue data stored in `localStorage` is shared between tabs of this app in the same browser profile. If the queue is changed in multiple tabs at the same time, later changes may overwrite earlier ones.
+Queue data and saved playback positions stored in `localStorage` are shared between tabs of this app in the same browser profile. If they are changed in multiple tabs at the same time, later changes may overwrite earlier ones.
 
 ## Source layout
 

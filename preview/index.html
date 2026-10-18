@@ -247,7 +247,7 @@
   <div class="app">
     <h1>TB Video Queue — YT Test</h1>
     <div id="previewLink"></div>
-    <div class="meta">App updated: 2026-10-16 · Spotify episode support: experimental</div>
+    <div class="meta">App updated: 2026-10-19 · Spotify episode support: experimental</div>
 
     <p class="hint">
       Copy a YouTube or Spotify episode URL, then press <strong>Ctrl+V</strong> on this page,
@@ -331,6 +331,9 @@
       // Keep the existing keys so current YouTube queues are not discarded.
       const QUEUE_KEY = "tbYouTubeQueue.v1";
       const CURRENT_INDEX_KEY = "tbYouTubeQueue.currentIndex.v1";
+      const PLAYBACK_POSITIONS_KEY = "tbVideoQueue.playbackPositions.v1";
+      const POSITION_SAVE_INTERVAL_MS = 5000;
+      const RESUME_REWIND_SECONDS = 5;
 
       const e = {
         unsupported: document.getElementById("unsupported"),
@@ -354,6 +357,9 @@
       let q = loadQueue();
       let cur = loadCurrentIndex();
       let sel = q.length ? Math.min(Math.max(cur, 0), q.length - 1) : -1;
+      let playbackPositions = loadPlaybackPositions();
+
+      cleanupPlaybackPositions();
 
       let activeKey = null;
 
@@ -362,6 +368,7 @@
       let ytReady = false;
       let ytPendingIndex = null;
       let ytApiLoading = false;
+      let ytLoadedKey = null;
 
       // Spotify player state
       let spotifyApi = null;
@@ -369,6 +376,9 @@
       let spotifyApiLoading = false;
       let spotifyPendingIndex = null;
       let spotifyEndHandledForKey = null;
+      let spotifyLoadedKey = null;
+      let spotifyLastPositionSeconds = 0;
+      let spotifyResumeOnReadySeconds = 0;
 
       if (location.protocol === "file:") {
         e.unsupported.style.display = "block";
@@ -454,6 +464,111 @@
       function saveCurrentIndex() {
         localStorage.setItem(CURRENT_INDEX_KEY, String(cur));
       }
+
+      function loadPlaybackPositions() {
+        try {
+          const raw = JSON.parse(localStorage.getItem(PLAYBACK_POSITIONS_KEY) || "{}");
+          return raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+        } catch {
+          return {};
+        }
+      }
+
+      function savePlaybackPositions() {
+        localStorage.setItem(PLAYBACK_POSITIONS_KEY, JSON.stringify(playbackPositions));
+      }
+
+      function setPlaybackPosition(key, seconds) {
+        const value = Number(seconds);
+        if (!key || !Number.isFinite(value) || value <= 0) {
+          return;
+        }
+
+        const previous = Number(playbackPositions[key]);
+        if (Number.isFinite(previous) && Math.abs(previous - value) < 1) {
+          return;
+        }
+
+        playbackPositions[key] = value;
+        savePlaybackPositions();
+      }
+
+      function removePlaybackPosition(key) {
+        if (!key || !(key in playbackPositions)) {
+          return;
+        }
+
+        delete playbackPositions[key];
+        savePlaybackPositions();
+      }
+
+      function removePlaybackPositionsForItems(items) {
+        let changed = false;
+
+        for (const item of items) {
+          const key = itemKey(item);
+          if (key in playbackPositions) {
+            delete playbackPositions[key];
+            changed = true;
+          }
+        }
+
+        if (changed) {
+          savePlaybackPositions();
+        }
+      }
+
+      function getResumePosition(item) {
+        const saved = Number(playbackPositions[itemKey(item)]);
+        if (!Number.isFinite(saved) || saved <= 0) {
+          return 0;
+        }
+
+        return Math.max(0, saved - RESUME_REWIND_SECONDS);
+      }
+
+      function saveActivePlaybackPosition() {
+        if (!activeKey) {
+          return;
+        }
+
+        if (activeKey === ytLoadedKey && ytPlayer && ytPlayer.getCurrentTime) {
+          try {
+            setPlaybackPosition(activeKey, ytPlayer.getCurrentTime());
+          } catch {}
+          return;
+        }
+
+        if (activeKey === spotifyLoadedKey && spotifyLastPositionSeconds > 0) {
+          setPlaybackPosition(activeKey, spotifyLastPositionSeconds);
+        }
+      }
+
+      function cleanupPlaybackPositions() {
+        const validKeys = new Set(q.map(item => itemKey(item)));
+        let changed = false;
+
+        for (const [key, value] of Object.entries(playbackPositions)) {
+          const seconds = Number(value);
+
+          if (
+            !validKeys.has(key) ||
+            !Number.isFinite(seconds) ||
+            seconds < 0
+          ) {
+            delete playbackPositions[key];
+            changed = true;
+          }
+        }
+
+        if (changed) {
+          savePlaybackPositions();
+        }
+      }
+
+      // Save the latest known position periodically so interrupted playback can resume.
+      setInterval(saveActivePlaybackPosition, POSITION_SAVE_INTERVAL_MS);
+      window.addEventListener("beforeunload", saveActivePlaybackPosition);
 
       // -----------------------------------------------------------------------
       // URL parsing / title lookup
@@ -810,7 +925,9 @@
           return;
         }
 
-        const removesPlayingItem = itemKey(q[index]) === activeKey;
+        const removedItem = q[index];
+        const removesPlayingItem = itemKey(removedItem) === activeKey;
+        removePlaybackPosition(itemKey(removedItem));
         q.splice(index, 1);
 
         if (!q.length) {
@@ -838,10 +955,10 @@
           return;
         }
 
-        const removesPlayingItem = q
-          .slice(0, sel)
-          .some(item => itemKey(item) === activeKey);
+        const removedItems = q.slice(0, sel);
+        const removesPlayingItem = removedItems.some(item => itemKey(item) === activeKey);
 
+        removePlaybackPositionsForItems(removedItems);
         q.splice(0, sel);
         sel = 0;
 
@@ -865,6 +982,7 @@
           return;
         }
 
+        removePlaybackPositionsForItems(q);
         q = [];
         sel = -1;
         cur = 0;
@@ -894,6 +1012,7 @@
         ytPlayer = null;
         ytReady = false;
         ytPendingIndex = null;
+        ytLoadedKey = null;
 
         // Spotify cleanup
         try {
@@ -907,6 +1026,9 @@
         spotifyController = null;
         spotifyPendingIndex = null;
         spotifyEndHandledForKey = null;
+        spotifyLoadedKey = null;
+        spotifyLastPositionSeconds = 0;
+        spotifyResumeOnReadySeconds = 0;
 
         activeKey = null;
 
@@ -925,10 +1047,15 @@
 
         index = clamp(index);
         const item = q[index];
+        const nextKey = itemKey(item);
+
+        if (activeKey && activeKey !== nextKey) {
+          saveActivePlaybackPosition();
+        }
 
         cur = index;
         sel = index;
-        activeKey = itemKey(item);
+        activeKey = nextKey;
 
         saveCurrentIndex();
         render();
@@ -1011,6 +1138,10 @@
           vars.origin = location.origin;
         }
 
+        const key = itemKey(item);
+        const resumeAt = getResumePosition(item);
+        ytLoadedKey = key;
+
         ytPlayer = new YT.Player("player", {
           width: "100%",
           height: "100%",
@@ -1019,16 +1150,33 @@
           events: {
             onReady: event => {
               ytReady = true;
+
+              if (activeKey === key && resumeAt > 0) {
+                try {
+                  event.target.seekTo(resumeAt, true);
+                } catch {}
+              }
+
               event.target.playVideo();
               render();
               scrollToPlaying();
             },
             onStateChange: event => {
+              if (event.data === YT.PlayerState.PAUSED || event.data === YT.PlayerState.BUFFERING) {
+                saveActivePlaybackPosition();
+              }
+
               if (event.data === YT.PlayerState.ENDED) {
+                const endedKey = ytLoadedKey;
+                if (endedKey) {
+                  removePlaybackPosition(endedKey);
+                }
+                ytLoadedKey = null;
                 next();
               }
             },
             onError: event => {
+              saveActivePlaybackPosition();
               setStatus(`YouTube Player error: ${event.data}`);
             }
           }
@@ -1037,6 +1185,8 @@
 
       function playYouTube(index) {
         const item = q[index];
+        const key = itemKey(item);
+        const resumeAt = getResumePosition(item);
 
         // Stop an existing Spotify player before switching provider.
         try {
@@ -1049,6 +1199,9 @@
 
         spotifyController = null;
         spotifyEndHandledForKey = null;
+        spotifyLoadedKey = null;
+        spotifyLastPositionSeconds = 0;
+        spotifyResumeOnReadySeconds = 0;
 
         if (!(window.YT && YT.Player)) {
           ytPendingIndex = index;
@@ -1059,13 +1212,21 @@
 
         if (!ytPlayer) {
           createYouTubePlayer(item);
-          setStatus("");
+          setStatus(
+            resumeAt > 0 ? `Resuming about ${RESUME_REWIND_SECONDS} seconds before the saved position.` : ""
+          );
           return;
         }
 
         if (ytReady && ytPlayer.loadVideoById) {
-          ytPlayer.loadVideoById(item.id);
-          setStatus("");
+          ytLoadedKey = key;
+          ytPlayer.loadVideoById({
+            videoId: item.id,
+            startSeconds: resumeAt
+          });
+          setStatus(
+            resumeAt > 0 ? `Resuming about ${RESUME_REWIND_SECONDS} seconds before the saved position.` : ""
+          );
           render();
           scrollToPlaying();
         } else {
@@ -1107,6 +1268,16 @@
 
       function attachSpotifyEvents(controller) {
         controller.addListener("ready", () => {
+          if (activeKey !== spotifyLoadedKey) {
+            return;
+          }
+
+          if (spotifyResumeOnReadySeconds > 0 && controller.seek) {
+            try {
+              controller.seek(Math.floor(spotifyResumeOnReadySeconds));
+            } catch {}
+          }
+
           try {
             controller.play();
           } catch {}
@@ -1123,20 +1294,31 @@
           const data = event && event.data ? event.data : {};
           const position = Number(data.position);
           const duration = Number(data.duration);
+          const isBuffering = Boolean(data.isBuffering);
+
+          if (Number.isFinite(position) && position >= 0 && activeKey === spotifyLoadedKey) {
+            spotifyLastPositionSeconds = position / 1000;
+          }
 
           // Spotify currently exposes playback position/duration rather than a
-          // dedicated "ended" event. Treat reaching the end as a best-effort
-          // queue advance. This is intentionally experimental.
+          // dedicated "ended" event. Treat reaching the end while not buffering
+          // as a best-effort queue advance. This is intentionally experimental.
           if (
             Number.isFinite(position) &&
             Number.isFinite(duration) &&
             duration > 0 &&
+            !isBuffering &&
             position >= duration - 500 &&
             spotifyEndHandledForKey !== activeKey
           ) {
-            spotifyEndHandledForKey = activeKey;
+            const endedKey = activeKey;
+            spotifyEndHandledForKey = endedKey;
+
             setTimeout(() => {
-              if (spotifyEndHandledForKey === activeKey) {
+              if (spotifyEndHandledForKey === endedKey && activeKey === endedKey) {
+                removePlaybackPosition(endedKey);
+                spotifyLastPositionSeconds = 0;
+                spotifyLoadedKey = null;
                 next();
               }
             }, 250);
@@ -1148,6 +1330,9 @@
         e.playerHost.innerHTML = '<div id="spotifyHost"></div>';
 
         const host = document.getElementById("spotifyHost");
+        spotifyLoadedKey = itemKey(item);
+        spotifyLastPositionSeconds = 0;
+        spotifyResumeOnReadySeconds = getResumePosition(item);
 
         spotifyApi.createController(
           host,
@@ -1166,6 +1351,8 @@
 
       function playSpotify(index) {
         const item = q[index];
+        const key = itemKey(item);
+        const resumeAt = getResumePosition(item);
 
         // Stop and destroy YouTube before switching provider.
         try {
@@ -1180,6 +1367,7 @@
 
         ytPlayer = null;
         ytReady = false;
+        ytLoadedKey = null;
 
         if (!spotifyApi) {
           spotifyPendingIndex = index;
@@ -1190,21 +1378,32 @@
 
         // Reuse the current Spotify controller when possible.
         if (spotifyController && spotifyController.loadEntity) {
+          spotifyLoadedKey = key;
+          spotifyLastPositionSeconds = 0;
+          spotifyResumeOnReadySeconds = 0;
           spotifyEndHandledForKey = null;
-          spotifyController.loadEntity(item.url);
+          spotifyController.loadEntity(item.url, false, Math.floor(resumeAt));
 
           try {
             spotifyController.play();
           } catch {}
 
-          setStatus("Spotify episode support is experimental.");
+          setStatus(
+            resumeAt > 0
+              ? `Spotify episode support is experimental. Resuming about ${RESUME_REWIND_SECONDS} seconds before the saved position.`
+              : "Spotify episode support is experimental."
+          );
           render();
           scrollToPlaying();
           return;
         }
 
         createSpotifyPlayer(item);
-        setStatus("Spotify episode support is experimental.");
+        setStatus(
+          resumeAt > 0
+            ? `Spotify episode support is experimental. Resuming about ${RESUME_REWIND_SECONDS} seconds before the saved position.`
+            : "Spotify episode support is experimental."
+        );
       }
 
       // -----------------------------------------------------------------------
