@@ -247,7 +247,7 @@
   <div class="app">
     <h1>TB Video Queue — YT Test</h1>
     <div id="previewLink"></div>
-    <div class="meta">App updated: 2026-10-19 · Spotify episode support: experimental</div>
+    <div class="meta">App updated: 2026-10-21 · Spotify episode support: experimental</div>
 
     <p class="hint">
       Copy a YouTube or Spotify episode URL, then press <strong>Ctrl+V</strong> on this page,
@@ -379,6 +379,10 @@
       let spotifyLoadedKey = null;
       let spotifyLastPositionSeconds = 0;
       let spotifyResumeOnReadySeconds = 0;
+      let spotifyResumeGuardKey = null;
+      let spotifyResumeGuardTargetSeconds = 0;
+      let spotifySeekAfterStartPending = false;
+      let spotifyControllerGeneration = 0;
 
       if (location.protocol === "file:") {
         e.unsupported.style.display = "block";
@@ -539,7 +543,11 @@
           return;
         }
 
-        if (activeKey === spotifyLoadedKey && spotifyLastPositionSeconds > 0) {
+        if (
+          activeKey === spotifyLoadedKey &&
+          spotifyLastPositionSeconds > 0 &&
+          spotifyResumeGuardKey !== activeKey
+        ) {
           setPlaybackPosition(activeKey, spotifyLastPositionSeconds);
         }
       }
@@ -1023,12 +1031,16 @@
           }
         } catch {}
 
+        spotifyControllerGeneration++;
         spotifyController = null;
         spotifyPendingIndex = null;
         spotifyEndHandledForKey = null;
         spotifyLoadedKey = null;
         spotifyLastPositionSeconds = 0;
         spotifyResumeOnReadySeconds = 0;
+        spotifyResumeGuardKey = null;
+        spotifyResumeGuardTargetSeconds = 0;
+        spotifySeekAfterStartPending = false;
 
         activeKey = null;
 
@@ -1189,6 +1201,7 @@
         const resumeAt = getResumePosition(item);
 
         // Stop an existing Spotify player before switching provider.
+        spotifyControllerGeneration++;
         try {
           if (spotifyController && spotifyController.destroy) {
             spotifyController.destroy();
@@ -1266,15 +1279,22 @@
         document.body.appendChild(script);
       }
 
-      function attachSpotifyEvents(controller) {
+      function attachSpotifyEvents(controller, key, generation) {
+        const isCurrentController = () =>
+          generation === spotifyControllerGeneration &&
+          controller === spotifyController &&
+          activeKey === key &&
+          spotifyLoadedKey === key;
+
         controller.addListener("ready", () => {
-          if (activeKey !== spotifyLoadedKey) {
+          if (!isCurrentController()) {
             return;
           }
 
           if (spotifyResumeOnReadySeconds > 0 && controller.seek) {
             try {
               controller.seek(Math.floor(spotifyResumeOnReadySeconds));
+              spotifySeekAfterStartPending = true;
             } catch {}
           }
 
@@ -1287,17 +1307,51 @@
         });
 
         controller.addListener("playback_started", () => {
+          if (!isCurrentController()) {
+            return;
+          }
+
           spotifyEndHandledForKey = null;
+
+          // Some Spotify sessions do not apply seek reliably before playback starts.
+          // Retry it once after playback actually begins.
+          if (
+            spotifySeekAfterStartPending &&
+            spotifyResumeOnReadySeconds > 0 &&
+            controller.seek
+          ) {
+            spotifySeekAfterStartPending = false;
+            try {
+              controller.seek(Math.floor(spotifyResumeOnReadySeconds));
+            } catch {}
+          }
         });
 
         controller.addListener("playback_update", event => {
+          if (!isCurrentController()) {
+            return;
+          }
+
           const data = event && event.data ? event.data : {};
           const position = Number(data.position);
           const duration = Number(data.duration);
           const isBuffering = Boolean(data.isBuffering);
 
-          if (Number.isFinite(position) && position >= 0 && activeKey === spotifyLoadedKey) {
-            spotifyLastPositionSeconds = position / 1000;
+          if (Number.isFinite(position) && position >= 0) {
+            const positionSeconds = position / 1000;
+
+            if (spotifyResumeGuardKey === key) {
+              // Keep the previously confirmed position intact while Spotify is
+              // still below the requested resume point. This avoids replacing a
+              // good saved position with 0 or a few seconds after a failed reconnect.
+              if (positionSeconds + 2 >= spotifyResumeGuardTargetSeconds) {
+                spotifyResumeGuardKey = null;
+                spotifyResumeGuardTargetSeconds = 0;
+                spotifyLastPositionSeconds = positionSeconds;
+              }
+            } else {
+              spotifyLastPositionSeconds = positionSeconds;
+            }
           }
 
           // Spotify currently exposes playback position/duration rather than a
@@ -1309,16 +1363,22 @@
             duration > 0 &&
             !isBuffering &&
             position >= duration - 500 &&
-            spotifyEndHandledForKey !== activeKey
+            spotifyEndHandledForKey !== key
           ) {
-            const endedKey = activeKey;
+            const endedKey = key;
             spotifyEndHandledForKey = endedKey;
 
             setTimeout(() => {
-              if (spotifyEndHandledForKey === endedKey && activeKey === endedKey) {
+              if (
+                isCurrentController() &&
+                spotifyEndHandledForKey === endedKey
+              ) {
                 removePlaybackPosition(endedKey);
                 spotifyLastPositionSeconds = 0;
                 spotifyLoadedKey = null;
+                spotifyResumeGuardKey = null;
+                spotifyResumeGuardTargetSeconds = 0;
+                spotifySeekAfterStartPending = false;
                 next();
               }
             }, 250);
@@ -1330,9 +1390,16 @@
         e.playerHost.innerHTML = '<div id="spotifyHost"></div>';
 
         const host = document.getElementById("spotifyHost");
-        spotifyLoadedKey = itemKey(item);
+        const key = itemKey(item);
+        const resumeAt = getResumePosition(item);
+        const generation = ++spotifyControllerGeneration;
+
+        spotifyLoadedKey = key;
         spotifyLastPositionSeconds = 0;
-        spotifyResumeOnReadySeconds = getResumePosition(item);
+        spotifyResumeOnReadySeconds = resumeAt;
+        spotifyResumeGuardKey = resumeAt > 0 ? key : null;
+        spotifyResumeGuardTargetSeconds = resumeAt;
+        spotifySeekAfterStartPending = false;
 
         spotifyApi.createController(
           host,
@@ -1342,16 +1409,29 @@
             url: item.url
           },
           controller => {
+            if (generation !== spotifyControllerGeneration || activeKey !== key) {
+              try {
+                if (controller && controller.destroy) {
+                  controller.destroy();
+                }
+              } catch {}
+              return;
+            }
+
             spotifyController = controller;
             spotifyEndHandledForKey = null;
-            attachSpotifyEvents(controller);
+            attachSpotifyEvents(controller, key, generation);
           }
         );
       }
 
       function playSpotify(index) {
         const item = q[index];
-        const key = itemKey(item);
+
+        // If this is an explicit retry of the same Spotify item, preserve the
+        // latest confirmed position before replacing the existing controller.
+        saveActivePlaybackPosition();
+
         const resumeAt = getResumePosition(item);
 
         // Stop and destroy YouTube before switching provider.
@@ -1369,6 +1449,26 @@
         ytReady = false;
         ytLoadedKey = null;
 
+        // Recreate the Spotify controller for every playback request. Reusing a
+        // controller that is already stuck loading often fails to reconnect.
+        spotifyControllerGeneration++;
+        try {
+          if (spotifyController && spotifyController.destroy) {
+            spotifyController.destroy();
+          } else if (spotifyController && spotifyController.pause) {
+            spotifyController.pause();
+          }
+        } catch {}
+
+        spotifyController = null;
+        spotifyEndHandledForKey = null;
+        spotifyLoadedKey = null;
+        spotifyLastPositionSeconds = 0;
+        spotifyResumeOnReadySeconds = 0;
+        spotifyResumeGuardKey = null;
+        spotifyResumeGuardTargetSeconds = 0;
+        spotifySeekAfterStartPending = false;
+
         if (!spotifyApi) {
           spotifyPendingIndex = index;
           ensureSpotifyApi();
@@ -1376,32 +1476,10 @@
           return;
         }
 
-        // Reuse the current Spotify controller when possible.
-        if (spotifyController && spotifyController.loadEntity) {
-          spotifyLoadedKey = key;
-          spotifyLastPositionSeconds = 0;
-          spotifyResumeOnReadySeconds = 0;
-          spotifyEndHandledForKey = null;
-          spotifyController.loadEntity(item.url, false, Math.floor(resumeAt));
-
-          try {
-            spotifyController.play();
-          } catch {}
-
-          setStatus(
-            resumeAt > 0
-              ? `Spotify episode support is experimental. Resuming about ${RESUME_REWIND_SECONDS} seconds before the saved position.`
-              : "Spotify episode support is experimental."
-          );
-          render();
-          scrollToPlaying();
-          return;
-        }
-
         createSpotifyPlayer(item);
         setStatus(
           resumeAt > 0
-            ? `Spotify episode support is experimental. Resuming about ${RESUME_REWIND_SECONDS} seconds before the saved position.`
+            ? `Spotify episode support is experimental. Reconnecting and resuming about ${RESUME_REWIND_SECONDS} seconds before the saved position.`
             : "Spotify episode support is experimental."
         );
       }
@@ -1520,6 +1598,7 @@
       });
 
       render();
+      requestAnimationFrame(scrollSelected);
     })();
   </script>
 </body>

@@ -2,7 +2,7 @@
 
 Experimental test version of **TB Video Queue**.
 
-App updated: **2026-10-19**  
+App updated: **2026-10-21**  
 Last checked with YouTube: **2026-10-18**  
 Spotify episode support: **experimental**
 
@@ -44,6 +44,8 @@ Suggested repository name:
 - Best-effort automatic advance for Spotify episodes (experimental)
 - Saves playback positions for YouTube and Spotify episodes in browser `localStorage`
 - Replaying an unfinished item resumes about 5 seconds before its saved position
+- Replaying a Spotify episode recreates its embed controller instead of reusing a possibly stalled one
+- On page reload, the previously current queue item is selected and brought into view
 - Saved playback position is removed when an item finishes normally or is removed from the queue
 - Fixed-height scrollable queue
 - The currently playing item is scrolled into view once when playback changes
@@ -88,11 +90,13 @@ For YouTube and Spotify episodes, the app periodically stores the latest known p
 
 If an unfinished item is played again, playback resumes about 5 seconds before the saved position, or from the beginning if the saved position is less than 5 seconds. This small rewind is intended to make it easier to recover context after an interruption.
 
+For Spotify episodes, each playback request recreates the Spotify embed controller. While a resume attempt is in progress, the app keeps the previously confirmed saved position until playback reaches the requested resume area. This is intended to prevent a failed reconnect from overwriting a good saved position with 0 or only a few seconds.
+
 The saved position for an item is removed when playback reaches the end normally or when that item is removed from the queue. `Delete Above` removes saved positions for the deleted items, and `Clear All` removes saved positions for all cleared queue items.
 
 When the app starts, saved playback positions for items that are no longer in the queue are automatically removed.
 
-Spotify end detection remains best-effort because the Spotify IFrame API exposes playback state updates rather than a dedicated ended event. Buffering updates are not treated as completion by this app.
+Spotify end detection and reconnect/resume behavior remain best-effort because the Spotify IFrame API exposes playback state updates rather than a dedicated ended event. Buffering updates are not treated as completion by this app, and Spotify-side playback/session failures may still require another retry or a page reload.
 
 ## Queue copy format
 
