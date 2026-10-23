@@ -247,7 +247,7 @@
   <div class="app">
     <h1>TB Video Queue — YT Test</h1>
     <div id="previewLink"></div>
-    <div class="meta">App updated: 2026-10-21 · Spotify episode support: experimental</div>
+    <div class="meta">App updated: 2026-10-23 · Spotify episode support: experimental</div>
 
     <p class="hint">
       Copy a YouTube or Spotify episode URL, then press <strong>Ctrl+V</strong> on this page,
@@ -332,6 +332,9 @@
       const QUEUE_KEY = "tbYouTubeQueue.v1";
       const CURRENT_INDEX_KEY = "tbYouTubeQueue.currentIndex.v1";
       const PLAYBACK_POSITIONS_KEY = "tbVideoQueue.playbackPositions.v1";
+      const SPOTIFY_DEBUG_LOG_KEY = "tbVideoQueue.spotifyDebugLog.v1";
+      const SPOTIFY_DEBUG_LOG_LIMIT = 200;
+      const SPOTIFY_DEBUG_UPDATE_INTERVAL_MS = 5000;
       const POSITION_SAVE_INTERVAL_MS = 5000;
       const RESUME_REWIND_SECONDS = 5;
 
@@ -383,6 +386,9 @@
       let spotifyResumeGuardTargetSeconds = 0;
       let spotifySeekAfterStartPending = false;
       let spotifyControllerGeneration = 0;
+      let spotifyDebugLastUpdateLoggedAt = 0;
+      let spotifyDebugLastPaused = null;
+      let spotifyDebugLastBuffering = null;
 
       if (location.protocol === "file:") {
         e.unsupported.style.display = "block";
@@ -572,6 +578,75 @@
         if (changed) {
           savePlaybackPositions();
         }
+      }
+
+      // Keep a small persistent Spotify diagnostic log so intermittent failures
+      // can be inspected after they happen, without leaving DevTools open.
+      function appendSpotifyDebugLog(eventName, details = {}) {
+        let log = [];
+
+        try {
+          const stored = JSON.parse(localStorage.getItem(SPOTIFY_DEBUG_LOG_KEY) || "[]");
+          if (Array.isArray(stored)) {
+            log = stored;
+          }
+        } catch {}
+
+        log.push({
+          time: new Date().toISOString(),
+          event: eventName,
+          ...details
+        });
+
+        if (log.length > SPOTIFY_DEBUG_LOG_LIMIT) {
+          log = log.slice(-SPOTIFY_DEBUG_LOG_LIMIT);
+        }
+
+        try {
+          localStorage.setItem(SPOTIFY_DEBUG_LOG_KEY, JSON.stringify(log));
+        } catch {}
+      }
+
+      function logSpotifyPlaybackUpdate(
+        key,
+        generation,
+        position,
+        duration,
+        isPaused,
+        isBuffering
+      ) {
+        const now = Date.now();
+        const nearEnd =
+          Number.isFinite(position) &&
+          Number.isFinite(duration) &&
+          duration > 0 &&
+          position >= duration - 5000;
+        const stateChanged =
+          isPaused !== spotifyDebugLastPaused ||
+          isBuffering !== spotifyDebugLastBuffering;
+        const minInterval = nearEnd ? 1000 : SPOTIFY_DEBUG_UPDATE_INTERVAL_MS;
+
+        if (!stateChanged && now - spotifyDebugLastUpdateLoggedAt < minInterval) {
+          return;
+        }
+
+        spotifyDebugLastUpdateLoggedAt = now;
+        spotifyDebugLastPaused = isPaused;
+        spotifyDebugLastBuffering = isBuffering;
+
+        appendSpotifyDebugLog("playback_update", {
+          key,
+          generation,
+          positionMs: Number.isFinite(position) ? position : null,
+          durationMs: Number.isFinite(duration) ? duration : null,
+          positionSeconds: Number.isFinite(position) ? position / 1000 : null,
+          durationSeconds: Number.isFinite(duration) ? duration / 1000 : null,
+          isPaused,
+          isBuffering,
+          savedPositionSeconds: Number(playbackPositions[key]) || 0,
+          resumeGuardActive: spotifyResumeGuardKey === key,
+          resumeGuardTargetSeconds: spotifyResumeGuardTargetSeconds
+        });
       }
 
       // Save the latest known position periodically so interrupted playback can resume.
@@ -1291,10 +1366,21 @@
             return;
           }
 
+          appendSpotifyDebugLog("ready", {
+            key,
+            generation,
+            resumeAtSeconds: spotifyResumeOnReadySeconds
+          });
+
           if (spotifyResumeOnReadySeconds > 0 && controller.seek) {
             try {
               controller.seek(Math.floor(spotifyResumeOnReadySeconds));
               spotifySeekAfterStartPending = true;
+              appendSpotifyDebugLog("resume_seek_before_play", {
+                key,
+                generation,
+                seekToSeconds: Math.floor(spotifyResumeOnReadySeconds)
+              });
             } catch {}
           }
 
@@ -1311,6 +1397,7 @@
             return;
           }
 
+          appendSpotifyDebugLog("playback_started", { key, generation });
           spotifyEndHandledForKey = null;
 
           // Some Spotify sessions do not apply seek reliably before playback starts.
@@ -1323,6 +1410,11 @@
             spotifySeekAfterStartPending = false;
             try {
               controller.seek(Math.floor(spotifyResumeOnReadySeconds));
+              appendSpotifyDebugLog("resume_seek_after_start", {
+                key,
+                generation,
+                seekToSeconds: Math.floor(spotifyResumeOnReadySeconds)
+              });
             } catch {}
           }
         });
@@ -1335,7 +1427,17 @@
           const data = event && event.data ? event.data : {};
           const position = Number(data.position);
           const duration = Number(data.duration);
+          const isPaused = Boolean(data.isPaused);
           const isBuffering = Boolean(data.isBuffering);
+
+          logSpotifyPlaybackUpdate(
+            key,
+            generation,
+            position,
+            duration,
+            isPaused,
+            isBuffering
+          );
 
           if (Number.isFinite(position) && position >= 0) {
             const positionSeconds = position / 1000;
@@ -1368,6 +1470,15 @@
             const endedKey = key;
             spotifyEndHandledForKey = endedKey;
 
+            appendSpotifyDebugLog("auto_next_scheduled", {
+              key,
+              generation,
+              positionMs: position,
+              durationMs: duration,
+              isPaused,
+              isBuffering
+            });
+
             setTimeout(() => {
               if (
                 isCurrentController() &&
@@ -1379,6 +1490,10 @@
                 spotifyResumeGuardKey = null;
                 spotifyResumeGuardTargetSeconds = 0;
                 spotifySeekAfterStartPending = false;
+                appendSpotifyDebugLog("auto_next_execute", {
+                  key: endedKey,
+                  generation
+                });
                 next();
               }
             }, 250);
@@ -1393,6 +1508,13 @@
         const key = itemKey(item);
         const resumeAt = getResumePosition(item);
         const generation = ++spotifyControllerGeneration;
+
+        appendSpotifyDebugLog("controller_create", {
+          key,
+          generation,
+          resumeAtSeconds: resumeAt,
+          savedPositionSeconds: Number(playbackPositions[key]) || 0
+        });
 
         spotifyLoadedKey = key;
         spotifyLastPositionSeconds = 0;
@@ -1451,6 +1573,12 @@
 
         // Recreate the Spotify controller for every playback request. Reusing a
         // controller that is already stuck loading often fails to reconnect.
+        appendSpotifyDebugLog("play_request", {
+          key: itemKey(item),
+          previousLoadedKey: spotifyLoadedKey,
+          savedPositionSeconds: Number(playbackPositions[itemKey(item)]) || 0,
+          resumeAtSeconds: resumeAt
+        });
         spotifyControllerGeneration++;
         try {
           if (spotifyController && spotifyController.destroy) {
