@@ -31,7 +31,7 @@ Suggested repository name:
 ## Features
 
 - Add a supported content URL with `Ctrl+V`
-- Adding a URL only adds it to the queue; playback starts with `Play` or by double-clicking a queue item
+- Adding a URL only adds it to the queue; playback starts with `Play`, or immediately when using `Paste & Play`
 - A pasted queue item becomes selected and is scrolled into view
 - `Paste URL (Ctrl+V)` button
 - `Paste & Play` reads the content URL from the clipboard, adds/selects it, and starts playback
@@ -129,10 +129,6 @@ Titles are obtained from each provider's oEmbed endpoint. A title can change aft
 `Refresh Title` refreshes the title of the currently selected queue item. The app also starts a background title refresh whenever an item begins playback, without delaying playback while the title request completes. Adding a URL that is already present in the queue also refreshes that item's title in the background.
 
 Title refresh uses a fresh browser request (`cache: "no-store"`), but the provider's own oEmbed service may still control what metadata is returned.
-
-## Queue text selection
-
-Queue titles and URLs are normal selectable text. Dragging across a title or URL to select text does not change the selected queue item or rebuild the queue row. Double-clicking selected text is not treated as a playback command.
 
 ## Queue copy format
 
