@@ -2,7 +2,7 @@
 
 Experimental test version of **TB Video Queue**.
 
-App updated: **2026-10-21**  
+App updated: **2026-10-29**  
 Last checked with YouTube: **2026-10-18**  
 Spotify episode support: **experimental**
 
@@ -36,6 +36,8 @@ Suggested repository name:
 - `Paste URL (Ctrl+V)` button
 - `Paste & Play` reads the content URL from the clipboard, adds/selects it, and starts playback
 - Fetch titles with the provider's oEmbed endpoint
+- Refresh a selected item's title with `Refresh Title`
+- Refresh the title again in the background whenever playback starts, so titles that changed after being queued can be updated
 - No YouTube Data API key
 - Persistent queue with browser `localStorage`
 - Official YouTube IFrame Player
@@ -43,6 +45,7 @@ Suggested repository name:
 - Automatic playback of the next queued YouTube item
 - Best-effort automatic advance for Spotify episodes (experimental)
 - Saves playback positions for YouTube and Spotify episodes in browser `localStorage`
+- Shows `Resume: M:SS` (or `H:MM:SS`) in a queue row when that item has a saved resume position
 - Replaying an unfinished item resumes about 5 seconds before its saved position
 - Replaying a Spotify episode recreates its embed controller instead of reusing a possibly stalled one
 - On page reload, the previously current queue item is selected and brought into view
@@ -56,6 +59,7 @@ Suggested repository name:
 - When the queue has keyboard focus: `↑` moves the selected item up, `↓` moves it down, and `Delete` removes it
 - `Delete Above` removes all items before the selected item
 - `Copy Queue` copies the whole queue as plain text
+- Queue titles and URLs can be selected and copied as normal text
 - Browser standard context menu is preserved
 - If the currently playing item is removed from the queue, playback stops and the player is cleared
 
@@ -86,9 +90,9 @@ Spotify support is intentionally experimental. Playback behavior, autoplay, logi
 
 ## Playback position / resume
 
-For YouTube and Spotify episodes, the app periodically stores the latest known playback position in browser `localStorage`.
+For YouTube and Spotify episodes, the app periodically stores the latest known playback position in browser `localStorage`. When an item has a saved position, its queue row shows the effective resume point as `Resume: M:SS` or `Resume: H:MM:SS`.
 
-If an unfinished item is played again, playback resumes about 5 seconds before the saved position, or from the beginning if the saved position is less than 5 seconds. This small rewind is intended to make it easier to recover context after an interruption.
+If an unfinished item is played again, playback resumes about 5 seconds before the saved position, or from the beginning if the saved position is less than 5 seconds. The displayed `Resume:` value already includes this 5-second rewind, so it represents the position from which the app will normally try to resume. This small rewind is intended to make it easier to recover context after an interruption.
 
 For Spotify episodes, each playback request recreates the Spotify embed controller. While a resume attempt is in progress, the app keeps the previously confirmed saved position until playback reaches the requested resume area. This is intended to prevent a failed reconnect from overwriting a good saved position with 0 or only a few seconds.
 
@@ -96,7 +100,39 @@ The saved position for an item is removed when playback reaches the end normally
 
 When the app starts, saved playback positions for items that are no longer in the queue are automatically removed.
 
-Spotify end detection and reconnect/resume behavior remain best-effort because the Spotify IFrame API exposes playback state updates rather than a dedicated ended event. Buffering updates are not treated as completion by this app, and Spotify-side playback/session failures may still require another retry or a page reload.
+### End detection
+
+YouTube and Spotify use different end-detection methods.
+
+For YouTube, the app relies on the official YouTube IFrame Player API and advances the queue when the player reports `YT.PlayerState.ENDED`. The app does not infer YouTube completion from playback-position jumps or network-interruption duration.
+
+For Spotify episodes, end detection is best-effort because the Spotify IFrame API exposes playback state updates rather than a dedicated ended event. The app automatically advances only when all of the following conditions are satisfied for the current Spotify controller:
+
+1. `position` and `duration` are valid, `duration` is greater than zero, and the reported position is within 0.5 seconds of the reported duration.
+2. The update is not reported as buffering.
+3. The immediately preceding playback update was already within the final 15 seconds of the same reported duration.
+4. The reported position advanced since the preceding playback update. A repeated end position by itself is not enough.
+5. The amount of reported forward progress is no greater than the real time elapsed since the preceding playback update plus a 2-second tolerance. This is used to reject implausibly fast position jumps.
+
+A sudden jump directly to the end therefore does not immediately advance the queue. This helps avoid false completion after Spotify Embed reconnect/recovery behavior and also applies to large manual seeks near the end. If playback then continues normally and reaches the end, the queue advances automatically.
+
+An end-position report that fails the conditions above is also treated as **untrusted for resume-position storage**. It does not replace the last confirmed Spotify playback position and does not clear an active resume guard. For example, if the last confirmed position is about 770 seconds and Spotify suddenly reports `position == duration` at about 2739 seconds, the app keeps the confirmed position near 770 seconds. If the user retries playback, the normal 5-second rewind is then applied to that confirmed saved position.
+
+The length of a network interruption by itself is not used as a rule that blocks completion. Elapsed real time is used only to judge whether the reported position change is physically plausible. A long interruption can therefore recover normally if Spotify resumes from a sensible position.
+
+Spotify reconnect/resume behavior remains experimental, and Spotify-side playback/session failures may still require another retry or a page reload.
+
+## Title refresh
+
+Titles are obtained from each provider's oEmbed endpoint. A title can change after an item has been added to the queue, for example when a YouTube live stream was queued before its final title was set.
+
+`Refresh Title` refreshes the title of the currently selected queue item. The app also starts a background title refresh whenever an item begins playback, without delaying playback while the title request completes. Adding a URL that is already present in the queue also refreshes that item's title in the background.
+
+Title refresh uses a fresh browser request (`cache: "no-store"`), but the provider's own oEmbed service may still control what metadata is returned.
+
+## Queue text selection
+
+Queue titles and URLs are normal selectable text. Dragging across a title or URL to select text does not change the selected queue item or rebuild the queue row. Double-clicking selected text is not treated as a playback command.
 
 ## Queue copy format
 

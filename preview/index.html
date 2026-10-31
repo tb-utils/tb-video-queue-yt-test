@@ -198,6 +198,14 @@
       user-select: text;
     }
 
+    .resume {
+      margin-top: 2px;
+      color: var(--muted);
+      font-size: 0.78rem;
+      font-variant-numeric: tabular-nums;
+      user-select: text;
+    }
+
     .provider {
       font-size: 0.78rem;
       color: var(--muted);
@@ -247,7 +255,7 @@
   <div class="app">
     <h1>TB Video Queue — YT Test</h1>
     <div id="previewLink"></div>
-    <div class="meta">App updated: 2026-10-23 · Spotify episode support: experimental</div>
+    <div class="meta">App updated: 2026-10-29 · Spotify episode support: experimental</div>
 
     <p class="hint">
       Copy a YouTube or Spotify episode URL, then press <strong>Ctrl+V</strong> on this page,
@@ -272,6 +280,7 @@
       <button id="pasteBtn">Paste URL (Ctrl+V)</button>
       <button id="pastePlayBtn">Paste &amp; Play</button>
       <button id="copyBtn">Copy Queue</button>
+      <button id="refreshTitleBtn">Refresh Title</button>
       <button id="playBtn">Play</button>
       <button id="prevBtn">Previous</button>
       <button id="nextBtn">Next</button>
@@ -337,6 +346,9 @@
       const SPOTIFY_DEBUG_UPDATE_INTERVAL_MS = 5000;
       const POSITION_SAVE_INTERVAL_MS = 5000;
       const RESUME_REWIND_SECONDS = 5;
+      const SPOTIFY_END_THRESHOLD_MS = 500;
+      const SPOTIFY_END_APPROACH_WINDOW_MS = 15000;
+      const SPOTIFY_PROGRESS_TOLERANCE_MS = 2000;
 
       const e = {
         unsupported: document.getElementById("unsupported"),
@@ -348,6 +360,7 @@
         pasteBtn: document.getElementById("pasteBtn"),
         pastePlayBtn: document.getElementById("pastePlayBtn"),
         copyBtn: document.getElementById("copyBtn"),
+        refreshTitleBtn: document.getElementById("refreshTitleBtn"),
         playBtn: document.getElementById("playBtn"),
         prevBtn: document.getElementById("prevBtn"),
         nextBtn: document.getElementById("nextBtn"),
@@ -389,6 +402,8 @@
       let spotifyDebugLastUpdateLoggedAt = 0;
       let spotifyDebugLastPaused = null;
       let spotifyDebugLastBuffering = null;
+      let spotifyPreviousUpdatePositionMs = null;
+      let spotifyPreviousUpdateAtMs = null;
 
       if (location.protocol === "file:") {
         e.unsupported.style.display = "block";
@@ -449,6 +464,52 @@
       // localStorage
       // -----------------------------------------------------------------------
 
+      function formatPlaybackTime(seconds) {
+        const total = Math.max(0, Math.floor(Number(seconds) || 0));
+        const hours = Math.floor(total / 3600);
+        const minutes = Math.floor((total % 3600) / 60);
+        const secs = total % 60;
+
+        if (hours > 0) {
+          return `${hours}:${String(minutes).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+        }
+
+        return `${minutes}:${String(secs).padStart(2, "0")}`;
+      }
+
+      function getDisplayedResumePosition(key) {
+        const saved = Number(playbackPositions[key]);
+        if (!Number.isFinite(saved) || saved <= 0) {
+          return null;
+        }
+
+        return Math.max(0, saved - RESUME_REWIND_SECONDS);
+      }
+
+      function updateResumeDisplay(key) {
+        if (!key) {
+          return;
+        }
+
+        const rows = e.queue.querySelectorAll(".item");
+        for (const row of rows) {
+          const index = Number(row.dataset.index);
+          const item = q[index];
+          if (!item || itemKey(item) !== key) {
+            continue;
+          }
+
+          const resume = row.querySelector(".resume");
+          const seconds = getDisplayedResumePosition(key);
+
+          if (resume) {
+            resume.textContent = seconds == null ? "" : `Resume: ${formatPlaybackTime(seconds)}`;
+            resume.hidden = seconds == null;
+          }
+          return;
+        }
+      }
+
       function loadQueue() {
         try {
           const raw = JSON.parse(localStorage.getItem(QUEUE_KEY) || "[]");
@@ -501,6 +562,7 @@
 
         playbackPositions[key] = value;
         savePlaybackPositions();
+        updateResumeDisplay(key);
       }
 
       function removePlaybackPosition(key) {
@@ -510,6 +572,7 @@
 
         delete playbackPositions[key];
         savePlaybackPositions();
+        updateResumeDisplay(key);
       }
 
       function removePlaybackPositionsForItems(items) {
@@ -736,7 +799,7 @@
             encodeURIComponent(item.url) +
             "&format=json";
 
-          const response = await fetch(endpoint);
+          const response = await fetch(endpoint, { cache: "no-store" });
           if (!response.ok) {
             throw new Error("YouTube oEmbed failed.");
           }
@@ -750,7 +813,7 @@
             "https://open.spotify.com/oembed?url=" +
             encodeURIComponent(item.url);
 
-          const response = await fetch(endpoint);
+          const response = await fetch(endpoint, { cache: "no-store" });
           if (!response.ok) {
             throw new Error("Spotify oEmbed failed.");
           }
@@ -760,6 +823,40 @@
         }
 
         return item.id;
+      }
+
+      async function refreshTitle(index, { showStatus = true } = {}) {
+        if (index < 0 || index >= q.length) {
+          return false;
+        }
+
+        const item = q[index];
+        const key = itemKey(item);
+
+        try {
+          const title = await fetchTitle(item);
+          const currentIndex = q.findIndex(candidate => itemKey(candidate) === key);
+
+          if (currentIndex < 0) {
+            return false;
+          }
+
+          const changed = q[currentIndex].title !== title;
+          q[currentIndex].title = title;
+          saveQueue();
+          render();
+
+          if (showStatus) {
+            setStatus(changed ? "Title refreshed." : "Title is already up to date.");
+          }
+
+          return true;
+        } catch {
+          if (showStatus) {
+            setStatus("Title refresh failed.");
+          }
+          return false;
+        }
       }
 
       // Adds all recognizable URLs in pasted text.
@@ -790,6 +887,7 @@
             finalIndex = existingIndex;
             render();
             scrollSelected();
+            refreshTitle(existingIndex, { showStatus: false });
             continue;
           }
 
@@ -896,7 +994,14 @@
           subline.textContent = item.url;
           subline.title = item.url;
 
-          mainline.append(title, subline);
+          const resume = document.createElement("div");
+          resume.className = "resume";
+          const resumeSeconds = getDisplayedResumePosition(itemKey(item));
+          resume.textContent =
+            resumeSeconds == null ? "" : `Resume: ${formatPlaybackTime(resumeSeconds)}`;
+          resume.hidden = resumeSeconds == null;
+
+          mainline.append(title, subline, resume);
 
           const actions = document.createElement("div");
           actions.className = "item-actions";
@@ -923,13 +1028,38 @@
 
           li.append(number, mainline, actions);
 
+          const rowHasTextSelection = () => {
+            const selection = window.getSelection();
+            if (!selection || selection.isCollapsed || !selection.toString()) {
+              return false;
+            }
+
+            return (
+              (selection.anchorNode && li.contains(selection.anchorNode)) ||
+              (selection.focusNode && li.contains(selection.focusNode))
+            );
+          };
+
           li.addEventListener("click", () => {
+            if (rowHasTextSelection()) {
+              return;
+            }
+
             sel = index;
             e.queueBox.focus({ preventScroll: true });
-            render();
+
+            for (const row of e.queue.querySelectorAll(".item.selected")) {
+              row.classList.remove("selected");
+            }
+            li.classList.add("selected");
+            updateButtons();
           });
 
           li.addEventListener("dblclick", () => {
+            if (rowHasTextSelection()) {
+              return;
+            }
+
             play(index);
           });
 
@@ -943,6 +1073,7 @@
         const hasItems = q.length > 0;
 
         e.copyBtn.disabled = !hasItems;
+        e.refreshTitleBtn.disabled = sel < 0;
         e.playBtn.disabled = !hasItems;
         e.prevBtn.disabled = !hasItems;
         e.nextBtn.disabled = !hasItems;
@@ -1116,6 +1247,8 @@
         spotifyResumeGuardKey = null;
         spotifyResumeGuardTargetSeconds = 0;
         spotifySeekAfterStartPending = false;
+        spotifyPreviousUpdatePositionMs = null;
+        spotifyPreviousUpdateAtMs = null;
 
         activeKey = null;
 
@@ -1146,6 +1279,9 @@
 
         saveCurrentIndex();
         render();
+
+        // Refresh metadata without delaying playback. Live/upcoming titles can change.
+        refreshTitle(index, { showStatus: false });
 
         if (item.provider === "youtube") {
           playYouTube(index);
@@ -1290,6 +1426,8 @@
         spotifyLoadedKey = null;
         spotifyLastPositionSeconds = 0;
         spotifyResumeOnReadySeconds = 0;
+        spotifyPreviousUpdatePositionMs = null;
+        spotifyPreviousUpdateAtMs = null;
 
         if (!(window.YT && YT.Player)) {
           ytPendingIndex = index;
@@ -1439,7 +1577,50 @@
             isBuffering
           );
 
-          if (Number.isFinite(position) && position >= 0) {
+          // Spotify does not expose a dedicated "ended" event. To avoid false
+          // completion after reconnects or large seeks, only accept an end update
+          // when the immediately preceding update was already near the end and
+          // the reported position advanced at a pace compatible with elapsed time.
+          const updateNowMs = Date.now();
+          const previousPositionMs = spotifyPreviousUpdatePositionMs;
+          const previousUpdateAtMs = spotifyPreviousUpdateAtMs;
+          const elapsedSincePreviousMs =
+            previousUpdateAtMs == null ? null : Math.max(0, updateNowMs - previousUpdateAtMs);
+          const positionAdvanceMs =
+            Number.isFinite(previousPositionMs) && Number.isFinite(position)
+              ? position - previousPositionMs
+              : null;
+          const previousWasNearEnd =
+            Number.isFinite(previousPositionMs) &&
+            Number.isFinite(duration) &&
+            duration > 0 &&
+            previousPositionMs >= duration - SPOTIFY_END_APPROACH_WINDOW_MS;
+          const progressLooksContinuous =
+            Number.isFinite(positionAdvanceMs) &&
+            positionAdvanceMs > 0 &&
+            Number.isFinite(elapsedSincePreviousMs) &&
+            positionAdvanceMs <= elapsedSincePreviousMs + SPOTIFY_PROGRESS_TOLERANCE_MS;
+          const atEnd =
+            Number.isFinite(position) &&
+            Number.isFinite(duration) &&
+            duration > 0 &&
+            position >= duration - SPOTIFY_END_THRESHOLD_MS;
+          const acceptedEnd =
+            atEnd &&
+            !isBuffering &&
+            previousWasNearEnd &&
+            progressLooksContinuous;
+
+          // A reported end position that does not qualify as a normal completion is
+          // treated as untrusted. Do not let it replace the last confirmed resume
+          // position or clear the resume guard. This covers the observed Spotify
+          // recovery failure where a mid-episode position suddenly became duration.
+          const positionIsTrusted =
+            Number.isFinite(position) &&
+            position >= 0 &&
+            (!atEnd || acceptedEnd);
+
+          if (positionIsTrusted) {
             const positionSeconds = position / 1000;
 
             if (spotifyResumeGuardKey === key) {
@@ -1456,15 +1637,8 @@
             }
           }
 
-          // Spotify currently exposes playback position/duration rather than a
-          // dedicated "ended" event. Treat reaching the end while not buffering
-          // as a best-effort queue advance. This is intentionally experimental.
           if (
-            Number.isFinite(position) &&
-            Number.isFinite(duration) &&
-            duration > 0 &&
-            !isBuffering &&
-            position >= duration - 500 &&
+            acceptedEnd &&
             spotifyEndHandledForKey !== key
           ) {
             const endedKey = key;
@@ -1475,6 +1649,9 @@
               generation,
               positionMs: position,
               durationMs: duration,
+              previousPositionMs,
+              elapsedSincePreviousMs,
+              positionAdvanceMs,
               isPaused,
               isBuffering
             });
@@ -1490,6 +1667,8 @@
                 spotifyResumeGuardKey = null;
                 spotifyResumeGuardTargetSeconds = 0;
                 spotifySeekAfterStartPending = false;
+                spotifyPreviousUpdatePositionMs = null;
+                spotifyPreviousUpdateAtMs = null;
                 appendSpotifyDebugLog("auto_next_execute", {
                   key: endedKey,
                   generation
@@ -1497,7 +1676,27 @@
                 next();
               }
             }, 250);
+          } else if (atEnd && !isBuffering && spotifyEndHandledForKey !== key) {
+            appendSpotifyDebugLog("end_candidate_ignored", {
+              key,
+              generation,
+              positionMs: Number.isFinite(position) ? position : null,
+              durationMs: Number.isFinite(duration) ? duration : null,
+              previousPositionMs: Number.isFinite(previousPositionMs) ? previousPositionMs : null,
+              elapsedSincePreviousMs,
+              positionAdvanceMs: Number.isFinite(positionAdvanceMs) ? positionAdvanceMs : null,
+              previousWasNearEnd,
+              progressLooksContinuous,
+              positionTrusted: false,
+              savedPositionSeconds: Number(playbackPositions[key]) || 0,
+              confirmedPositionSeconds: spotifyLastPositionSeconds,
+              isPaused,
+              isBuffering
+            });
           }
+
+          spotifyPreviousUpdatePositionMs = Number.isFinite(position) ? position : null;
+          spotifyPreviousUpdateAtMs = updateNowMs;
         });
       }
 
@@ -1522,6 +1721,8 @@
         spotifyResumeGuardKey = resumeAt > 0 ? key : null;
         spotifyResumeGuardTargetSeconds = resumeAt;
         spotifySeekAfterStartPending = false;
+        spotifyPreviousUpdatePositionMs = null;
+        spotifyPreviousUpdateAtMs = null;
 
         spotifyApi.createController(
           host,
@@ -1596,6 +1797,8 @@
         spotifyResumeGuardKey = null;
         spotifyResumeGuardTargetSeconds = 0;
         spotifySeekAfterStartPending = false;
+        spotifyPreviousUpdatePositionMs = null;
+        spotifyPreviousUpdateAtMs = null;
 
         if (!spotifyApi) {
           spotifyPendingIndex = index;
@@ -1688,6 +1891,7 @@
       e.pasteBtn.addEventListener("click", pasteOnly);
       e.pastePlayBtn.addEventListener("click", pasteAndPlay);
       e.copyBtn.addEventListener("click", copyQueue);
+      e.refreshTitleBtn.addEventListener("click", () => refreshTitle(sel));
 
       e.playBtn.addEventListener("click", () => {
         if (q.length) {
