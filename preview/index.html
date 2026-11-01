@@ -236,13 +236,13 @@
     }
 
     .shortcuts {
-      margin-top: 12px;
-      padding: 10px 12px;
+      margin: 0 0 10px;
+      padding: 7px 10px;
       border: 1px solid var(--border);
       border-radius: 8px;
       color: var(--muted);
       font-size: 0.82rem;
-      line-height: 1.7;
+      line-height: 1.55;
     }
 
     .shortcuts strong {
@@ -279,7 +279,7 @@
   <div class="app">
     <h1>TB Video Queue — YT Test</h1>
     <div id="previewLink"></div>
-    <div class="meta">App updated: 2026-11-01 · Spotify episode support: experimental</div>
+    <div class="meta">App updated: 2026-11-02 · Spotify episode support: experimental</div>
 
     <p class="hint">
       Copy a YouTube or Spotify episode URL, then press <strong>Ctrl+V</strong> on this page,
@@ -314,6 +314,15 @@
       <button id="clearBtn" title="Clear All (Shift+X when Queue has focus)">Clear All</button>
     </div>
 
+    <div class="shortcuts">
+      <strong>Keyboard shortcuts (when Queue has focus)</strong><br>
+      <kbd>↑</kbd>/<kbd>↓</kbd> Select · <kbd>Ctrl+↑</kbd>/<kbd>Ctrl+↓</kbd> Move · <kbd>Home</kbd>/<kbd>End</kbd> First/Last ·
+      <kbd>Enter</kbd> Play · <kbd>Shift+Enter</kbd> Paste &amp; Play · <kbd>N</kbd> Next · <kbd>P</kbd> Previous<br>
+      <kbd>R</kbd> Refresh Title · <kbd>S</kbd> Scroll to Playing · <kbd>C</kbd> Copy Item · <kbd>Shift+C</kbd> Copy Queue ·
+      <kbd>Delete</kbd> Delete Item · <kbd>Shift+Delete</kbd> Delete Above · <kbd>Shift+X</kbd> Clear All<br>
+      <kbd>Ctrl+V</kbd> Paste URL · <kbd>Ctrl+Shift+V</kbd> Paste Before Selected · <kbd>Tab</kbd> Focus controls · <kbd>Enter</kbd>/<kbd>Space</kbd> Activate focused button
+    </div>
+
     <div id="queueBox" class="queue-box" tabindex="0">
       <div class="queue-head">
         <div class="queue-title">Queue</div>
@@ -326,15 +335,6 @@
     </div>
 
     <div id="status" class="status"></div>
-
-    <div class="shortcuts">
-      <strong>Keyboard shortcuts (when Queue has focus)</strong><br>
-      <kbd>↑</kbd>/<kbd>↓</kbd> Select · <kbd>Ctrl+↑</kbd>/<kbd>Ctrl+↓</kbd> Move · <kbd>Home</kbd>/<kbd>End</kbd> First/Last ·
-      <kbd>Enter</kbd> Play · <kbd>Shift+Enter</kbd> Paste &amp; Play · <kbd>N</kbd> Next · <kbd>P</kbd> Previous<br>
-      <kbd>R</kbd> Refresh Title · <kbd>S</kbd> Scroll to Playing · <kbd>C</kbd> Copy Item · <kbd>Shift+C</kbd> Copy Queue ·
-      <kbd>Delete</kbd> Delete Item · <kbd>Shift+Delete</kbd> Delete Above · <kbd>Shift+X</kbd> Clear All<br>
-      <kbd>Ctrl+V</kbd> Paste URL · <kbd>Ctrl+Shift+V</kbd> Paste Before Selected · <kbd>Tab</kbd> Focus controls · <kbd>Enter</kbd>/<kbd>Space</kbd> Activate focused button
-    </div>
   </div>
 
   <script>

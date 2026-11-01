@@ -2,7 +2,7 @@
 
 Experimental test version of **TB Video Queue**.
 
-App updated: **2026-11-01**  
+App updated: **2026-11-02**  
 Last checked with YouTube: **2026-10-18**  
 Spotify episode support: **experimental**
 
