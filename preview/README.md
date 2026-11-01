@@ -2,7 +2,7 @@
 
 Experimental test version of **TB Video Queue**.
 
-App updated: **2026-10-29**  
+App updated: **2026-11-01**  
 Last checked with YouTube: **2026-10-18**  
 Spotify episode support: **experimental**
 
@@ -35,6 +35,8 @@ Suggested repository name:
 - A pasted queue item becomes selected and is scrolled into view
 - `Paste URL (Ctrl+V)` button
 - `Paste & Play` reads the content URL from the clipboard, adds/selects it, and starts playback
+- `Paste Before Selected` places clipboard items immediately before the selected queue item; if a pasted item already exists in the queue, that existing item is moved there instead of creating a duplicate; if nothing is selected, items are placed at the end
+- If `Paste Before Selected` inserts before the currently playing item, the current position is saved, the first inserted item starts immediately, and normal queue advance eventually returns to the interrupted item using its saved resume position
 - Fetch titles with the provider's oEmbed endpoint
 - Refresh a selected item's title with `Refresh Title`
 - Refresh the title again in the background whenever playback starts, so titles that changed after being queued can be updated
@@ -54,11 +56,12 @@ Suggested repository name:
 - The currently playing item is scrolled into view once when playback changes
 - `Scroll to Now Playing Item` scrolls the queue to the item that is currently playing
 - The currently playing row is marked with `▶`
-- Move items up or down
-- Delete selected item
-- When the queue has keyboard focus: `↑` moves the selected item up, `↓` moves it down, and `Delete` removes it
+- Move items up or down with the row `↑` / `↓` buttons or with `Ctrl+↑` / `Ctrl+↓` while the Queue has focus
+- Delete an item with its row `×` button or the `Delete` key while the Queue has focus
+- While the Queue has focus, `↑` / `↓` changes the selected row without moving the item
 - `Delete Above` removes all items before the selected item
-- `Copy Queue` copies the whole queue as plain text
+- Copy the selected item with `C`, or copy the whole queue with `Shift+C` or the `Copy Queue` button
+- Keyboard shortcuts are available while the Queue has focus; standard `Tab` + `Enter`/`Space` button operation remains available
 - Queue titles and URLs can be selected and copied as normal text
 - Browser standard context menu is preserved
 - If the currently playing item is removed from the queue, playback stops and the player is cleared
@@ -130,9 +133,40 @@ Titles are obtained from each provider's oEmbed endpoint. A title can change aft
 
 Title refresh uses a fresh browser request (`cache: "no-store"`), but the provider's own oEmbed service may still control what metadata is returned.
 
+## Keyboard shortcuts
+
+The shortcuts below are active when the **Queue** has focus. Use `Tab` to move focus through normal browser controls; focused buttons can still be activated with `Enter` or `Space`.
+
+| Key | Action |
+| --- | --- |
+| `↑` / `↓` | Select previous / next queue item |
+| `Ctrl+↑` / `Ctrl+↓` | Move the selected queue item up / down |
+| `Home` / `End` | Select the first / last queue item |
+| `Enter` | Play the selected item |
+| `Shift+Enter` | Paste & Play |
+| `N` | Next |
+| `P` | Previous |
+| `R` | Refresh Title |
+| `S` | Scroll to Now Playing Item |
+| `C` | Copy the selected item as title + URL |
+| `Shift+C` | Copy the whole queue |
+| `Delete` | Delete the selected item |
+| `Shift+Delete` | Delete Above |
+| `Shift+X` | Clear All; the existing confirmation dialog is still shown |
+| `Ctrl+V` | Add pasted URL(s); new items are appended to the end of the queue |
+| `Ctrl+Shift+V` | Paste Before Selected |
+
+If text inside a queue row is currently selected, the custom `C` / `Shift+C` shortcuts are ignored. The selected text can then be copied with the browser's normal `Ctrl+C` operation.
+
+### Paste Before Selected
+
+`Paste Before Selected` places recognized clipboard items immediately before the selected queue row. Multiple URLs keep their clipboard order. If no queue row is selected, the items are placed at the end of the queue. If a pasted URL already exists in the queue, that existing item is moved to the destination instead of creating a duplicate. Its existing queue data, including its saved resume position, is preserved.
+
+If the selected row is also the currently playing item, the app saves that item's latest known playback position, places the new or moved item or items before it, and immediately starts the first placed item. Normal automatic queue advance then proceeds through those items and eventually reaches the interrupted item again, where the normal resume behavior applies. This can be used, for example, to move an item from the end of the queue ahead of the currently playing item and play it as an interruption.
+
 ## Queue copy format
 
-`Copy Queue` uses this plain-text format:
+`C` copies the selected item as its title and URL. `Shift+C` and the `Copy Queue` button copy the whole queue using the same plain-text format:
 
 ```text
 Content title
@@ -161,7 +195,7 @@ Opening `index.html` directly with `file://` is **not supported**.
 
 There are two relevant browser restrictions:
 
-1. The Clipboard API used by the `Paste URL`, `Paste & Play`, and `Copy Queue` buttons requires a secure context in normal web use.
+1. The Clipboard API used by `Paste URL`, `Paste Before Selected`, `Paste & Play`, and copy operations requires a secure context in normal web use.
 2. Embedded players expect normal web origin/referrer behavior. Direct `file://` use may fail.
 
 For local development, `http://localhost` may work because modern browsers can treat localhost as a secure context. The normal supported deployment remains HTTPS.
