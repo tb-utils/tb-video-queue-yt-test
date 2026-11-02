@@ -127,7 +127,7 @@ Spotify reconnect/resume behavior remains experimental, and Spotify-side playbac
 
 ## Title refresh
 
-Titles are obtained from each provider's oEmbed endpoint. A title can change after an item has been added to the queue, for example when a YouTube live stream was queued before its final title was set.
+Titles are obtained from each provider's oEmbed endpoint. A title can change after an item has been added to the queue. For example, an upcoming YouTube live stream may already have a title visible on YouTube, while the oEmbed endpoint may not return that title yet.
 
 `Refresh Title` refreshes the title of the currently selected queue item. The app also starts a background title refresh whenever an item begins playback, without delaying playback while the title request completes. Adding a URL that is already present in the queue also refreshes that item's title in the background.
 
