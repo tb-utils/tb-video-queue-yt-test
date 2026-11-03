@@ -2,7 +2,7 @@
 
 Experimental test version of **TB Video Queue**.
 
-App updated: **2026-11-02**  
+App updated: **2026-11-03**  
 Last checked with YouTube: **2026-10-18**  
 Spotify episode support: **experimental**
 
@@ -139,22 +139,22 @@ The shortcuts below are active when the **Queue** has focus. Use `Tab` to move f
 
 | Key | Action |
 | --- | --- |
+| `Ctrl+V` | Add pasted URL(s); new items are appended to the end of the queue |
+| `Ctrl+Shift+V` | Paste Before Selected |
+| `Shift+Enter` | Paste & Play |
+| `Shift+C` | Copy the whole queue |
+| `R` | Refresh Title |
+| `Enter` | Play the selected item |
+| `P` | Previous |
+| `N` | Next |
+| `S` | Scroll to Now Playing Item |
+| `Shift+Delete` | Delete Above |
+| `Shift+X` | Clear All; the existing confirmation dialog is still shown |
 | `↑` / `↓` | Select previous / next queue item |
 | `Ctrl+↑` / `Ctrl+↓` | Move the selected queue item up / down |
 | `Home` / `End` | Select the first / last queue item |
-| `Enter` | Play the selected item |
-| `Shift+Enter` | Paste & Play |
-| `N` | Next |
-| `P` | Previous |
-| `R` | Refresh Title |
-| `S` | Scroll to Now Playing Item |
 | `C` | Copy the selected item as title + URL |
-| `Shift+C` | Copy the whole queue |
 | `Delete` | Delete the selected item |
-| `Shift+Delete` | Delete Above |
-| `Shift+X` | Clear All; the existing confirmation dialog is still shown |
-| `Ctrl+V` | Add pasted URL(s); new items are appended to the end of the queue |
-| `Ctrl+Shift+V` | Paste Before Selected |
 
 If text inside a queue row is currently selected, the custom `C` / `Shift+C` shortcuts are ignored. The selected text can then be copied with the browser's normal `Ctrl+C` operation.
 
